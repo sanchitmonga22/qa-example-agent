@@ -1,7 +1,9 @@
-import { chromium, Browser, Page, BrowserContext } from 'playwright';
-import { TestBookingFlowRequest, TestBookingFlowResponse, TestStep, TestError } from '../types';
+import { chromium, Browser, Page, BrowserContext, ElementHandle } from 'playwright';
+import { CustomStepResult, LLMDecision, PageElement, PageState, TestBookingFlowRequest, TestBookingFlowResponse, TestError, TestStep } from '../types';
 import { generateTestId } from '../utils';
 import { TestDataGenerator } from './TestDataGenerator';
+import { BaseLLMService } from '../services/BaseLLMService';
+import { OpenAIService } from '../services/OpenAIService';
 
 export class BookingFlowTest {
   private browser: Browser | null = null;
@@ -16,6 +18,8 @@ export class BookingFlowTest {
     timeout: 30000,
     screenshotCapture: true
   };
+  private llmService: BaseLLMService | null = null;
+  private customStepsResults: CustomStepResult[] = [];
 
   constructor(request: TestBookingFlowRequest) {
     this.testId = generateTestId();
@@ -26,6 +30,12 @@ export class BookingFlowTest {
         ...this.options,
         ...request.options
       };
+    }
+    
+    // Initialize LLM service if API key is available
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (apiKey) {
+      this.llmService = new OpenAIService(apiKey);
     }
   }
 
@@ -74,6 +84,199 @@ export class BookingFlowTest {
       return this.generateResponse(false, false);
     } finally {
       await this.cleanup();
+    }
+  }
+
+  /**
+   * Run test with custom steps guided by LLM
+   */
+  async runTestWithCustomSteps(url: string, customSteps: string[]): Promise<TestBookingFlowResponse> {
+    try {
+      await this.initialize();
+      
+      // Step 1: Navigate to page
+      await this.navigateToPage(url);
+      
+      // Execute custom steps if LLM service is available
+      if (this.llmService) {
+        for (const step of customSteps) {
+          const stepResult = await this.executeCustomStep(step);
+          this.customStepsResults.push(stepResult);
+          
+          // Stop execution if a step fails
+          if (!stepResult.success) {
+            break;
+          }
+        }
+      } else {
+        // Fall back to standard test if LLM service is not available
+        this.addError('custom_steps', 'LLM service not available', 
+          'The OpenAI API key is not configured. Falling back to standard test.');
+        return this.runTest(url);
+      }
+      
+      // Determine success based on custom steps execution
+      const allStepsSucceeded = this.customStepsResults.every(step => step.success);
+      
+      // Check if we found a demo element and completed booking in the custom steps
+      const demoFlowFound = this.customStepsResults.some(step => 
+        step.instruction.toLowerCase().includes('demo') || 
+        step.instruction.toLowerCase().includes('book'));
+      
+      const bookingSuccessful = this.customStepsResults.some(step => 
+        step.instruction.toLowerCase().includes('submit') || 
+        step.instruction.toLowerCase().includes('form'));
+      
+      return this.generateResponseWithCustomSteps(demoFlowFound, bookingSuccessful);
+    } catch (error) {
+      this.addError('custom_step_execution', 'Custom step execution failed', error);
+      return this.generateResponseWithCustomSteps(false, false);
+    } finally {
+      await this.cleanup();
+    }
+  }
+  
+  /**
+   * Execute a single custom step using LLM guidance
+   */
+  private async executeCustomStep(instruction: string): Promise<CustomStepResult> {
+    try {
+      // Extract page state for LLM context
+      const pageState = await this.extractPageState();
+      
+      // Parse the instruction with LLM
+      const parsedStep = await this.llmService!.parseTestStep(instruction);
+      
+      // Determine the action to take
+      const decision = await this.llmService!.determineNextAction(
+        pageState,
+        instruction
+      );
+      
+      // Execute the action based on LLM decision
+      let success = false;
+      let error = undefined;
+      
+      try {
+        switch (decision.action) {
+          case 'click':
+            if (decision.targetElement) {
+              const selector = this.buildSelectorFromElement(decision.targetElement);
+              await this.page!.click(selector);
+              success = true;
+            }
+            break;
+            
+          case 'type':
+            if (decision.targetElement && decision.value) {
+              const selector = this.buildSelectorFromElement(decision.targetElement);
+              await this.page!.fill(selector, decision.value);
+              success = true;
+            }
+            break;
+            
+          case 'submit':
+            await this.page!.evaluate(() => {
+              const form = document.querySelector('form');
+              if (form) form.submit();
+            });
+            success = true;
+            break;
+            
+          case 'wait':
+            await this.page!.waitForTimeout(2000); // Default wait
+            success = true;
+            break;
+            
+          case 'verify':
+            // Verification just checks if an element exists
+            if (decision.targetElement) {
+              const selector = this.buildSelectorFromElement(decision.targetElement);
+              const element = await this.page!.$(selector);
+              success = !!element;
+            }
+            break;
+            
+          default:
+            error = `Unsupported action: ${decision.action}`;
+        }
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+        success = false;
+      }
+      
+      // Capture screenshot for the step
+      const screenshot = await this.captureScreenshotBase64();
+      
+      // Return the result
+      return {
+        instruction,
+        success,
+        error,
+        screenshot,
+        llmDecision: decision,
+        status: success ? "success" : "failure"
+      };
+    } catch (error) {
+      return {
+        instruction,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        status: "failure"
+      };
+    }
+  }
+  
+  /**
+   * Extract page state for LLM context
+   */
+  private async extractPageState(): Promise<PageState> {
+    const screenshot = await this.captureScreenshotBase64();
+    
+    // Extract DOM elements for LLM context
+    const elements = await this.page!.evaluate(() => {
+      return Array.from(document.querySelectorAll('a, button, input, select, textarea, form, [role="button"]'))
+        .map((el, index) => {
+          const rect = el.getBoundingClientRect();
+          return {
+            tag: el.tagName.toLowerCase(),
+            type: (el as HTMLElement).getAttribute('type'),
+            id: el.id,
+            classes: Array.from(el.classList),
+            text: el.textContent?.trim(),
+            placeholder: (el as HTMLElement).getAttribute('placeholder'),
+            name: (el as HTMLElement).getAttribute('name'),
+            href: (el as HTMLElement).getAttribute('href'),
+            rect: {
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height
+            },
+            visible: rect.width > 0 && rect.height > 0 && window.getComputedStyle(el).display !== 'none'
+          };
+        });
+    });
+    
+    return {
+      title: await this.page!.title(),
+      url: this.page!.url(),
+      screenshot,
+      elements: elements as PageElement[],
+      timestamp: new Date().toISOString()
+    };
+  }
+  
+  /**
+   * Build a CSS selector from a page element
+   */
+  private buildSelectorFromElement(element: PageElement): string {
+    if (element.id) {
+      return `#${element.id}`;
+    } else if (element.classes && element.classes.length > 0) {
+      return `.${element.classes.join('.')}`;
+    } else {
+      return `${element.tag}`;
     }
   }
 
@@ -321,6 +524,43 @@ export class BookingFlowTest {
       message,
       details
     });
+  }
+
+  /**
+   * Capture screenshot as base64
+   */
+  private async captureScreenshotBase64(): Promise<string> {
+    if (!this.options.screenshotCapture || !this.page) {
+      return '';
+    }
+    
+    try {
+      const buffer = await this.page.screenshot({ type: 'jpeg', quality: 80 });
+      return `data:image/jpeg;base64,${buffer.toString('base64')}`;
+    } catch (error) {
+      console.error('Error capturing screenshot:', error);
+      return '';
+    }
+  }
+
+  /**
+   * Generate response with custom steps
+   */
+  private generateResponseWithCustomSteps(demoFlowFound: boolean, bookingSuccessful: boolean): TestBookingFlowResponse {
+    const endTime = Date.now();
+    const totalDuration = endTime - this.startTime;
+    
+    return {
+      success: this.customStepsResults.every(step => step.success),
+      testId: this.testId,
+      url: this.url,
+      demoFlowFound,
+      bookingSuccessful,
+      steps: this.steps,
+      customStepsResults: this.customStepsResults,
+      totalDuration,
+      errors: this.errors
+    };
   }
 
   /**

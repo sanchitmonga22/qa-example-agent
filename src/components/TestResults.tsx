@@ -1,114 +1,231 @@
 "use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { CheckCircle, XCircle, AlertTriangle, Info } from "lucide-react";
 import StatusIndicator from "./StatusIndicator";
 import ErrorDisplay from "./ErrorDisplay";
 import Screenshots from "./Screenshots";
-import { TestBookingFlowResponse } from "@/lib/types";
+import { TestBookingFlowResponse, TestError, TestStep } from "@/lib/types";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 interface TestResultsProps {
-  results: TestBookingFlowResponse | null;
-  isLoading?: boolean;
-  className?: string;
+  results: TestBookingFlowResponse;
 }
 
-export default function TestResults({ 
-  results, 
-  isLoading = false,
-  className = "" 
-}: TestResultsProps) {
-  if (isLoading) {
-    return (
-      <div className={`${className} space-y-4`}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <StatusIndicator status="running" className="mr-2" />
-              Testing in progress
-            </CardTitle>
-            <CardDescription>
-              Please wait while we test the booking flow
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <p className="text-sm text-gray-500">
-                We are currently checking if the landing page has a booking flow and
-                attempting to complete the process.
-              </p>
-              <div className="flex justify-center">
-                <div className="h-2 w-full max-w-md bg-gray-200 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '60%' }}></div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!results) {
-    return null;
-  }
-
-  const overallStatus = results.success ? "success" : "failure";
+export default function TestResults({ results }: TestResultsProps) {
+  // Helper function to format duration
+  const formatDuration = (ms: number) => {
+    if (ms < 1000) {
+      return `${ms}ms`;
+    }
+    return `${(ms / 1000).toFixed(1)}s`;
+  };
 
   return (
-    <div className={`${className} space-y-8`}>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <StatusIndicator status={overallStatus} className="mr-2" />
-            Test Results
-          </CardTitle>
-          <CardDescription>
-            Test ID: {results.testId} | 
-            Duration: {(results.totalDuration / 1000).toFixed(2)}s
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="border rounded p-4">
-                <p className="text-sm font-medium mb-1">Demo Flow Detection</p>
-                <div className="flex items-center">
-                  <StatusIndicator 
-                    status={results.demoFlowFound ? "success" : "failure"} 
-                    size={18} 
-                  />
-                  <span className="ml-2 text-sm">
-                    {results.demoFlowFound 
-                      ? "Book a Demo flow found" 
-                      : "No Book a Demo flow detected"}
-                  </span>
-                </div>
-              </div>
-              
-              <div className="border rounded p-4">
-                <p className="text-sm font-medium mb-1">Booking Process</p>
-                <div className="flex items-center">
-                  <StatusIndicator 
-                    status={results.bookingSuccessful ? "success" : "failure"} 
-                    size={18} 
-                  />
-                  <span className="ml-2 text-sm">
-                    {results.bookingSuccessful 
-                      ? "Booking completed successfully" 
-                      : "Booking process failed"}
-                  </span>
-                </div>
-              </div>
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle className="flex justify-between items-center">
+          <span>Test Results</span>
+          <Badge variant={results.success ? "success" : "destructive"}>
+            {results.success ? "Success" : "Failed"}
+          </Badge>
+        </CardTitle>
+        <CardDescription>
+          URL: {results.url} • Test ID: {results.testId} • Duration: {formatDuration(results.totalDuration)}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex flex-col p-4 border rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <StatusIndicator status={results.demoFlowFound ? "success" : "failure"} />
+              <span className="font-medium">Demo Flow Detection</span>
             </div>
-            
-            {results.errors.length > 0 && (
-              <ErrorDisplay errors={results.errors} />
+            <p className="text-sm text-muted-foreground">
+              {results.demoFlowFound
+                ? "Successfully found the 'Book a Demo' element"
+                : "Could not find the 'Book a Demo' element"}
+            </p>
+          </div>
+          <div className="flex flex-col p-4 border rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <StatusIndicator status={results.bookingSuccessful ? "success" : "failure"} />
+              <span className="font-medium">Booking Process</span>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {results.bookingSuccessful
+                ? "Successfully completed the booking process"
+                : "Could not complete the booking process"}
+            </p>
+          </div>
+        </div>
+
+        <Tabs defaultValue="steps">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="steps">Test Steps</TabsTrigger>
+            <TabsTrigger value="custom-steps" disabled={!results.customStepsResults || results.customStepsResults.length === 0}>
+              Custom Steps
+            </TabsTrigger>
+            <TabsTrigger value="screenshots">Screenshots</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="steps" className="space-y-4 mt-4">
+            {results.steps.map((step, index) => (
+              <StepCard key={index} step={step} index={index} />
+            ))}
+          </TabsContent>
+
+          <TabsContent value="custom-steps" className="space-y-4 mt-4">
+            {results.customStepsResults && results.customStepsResults.length > 0 ? (
+              results.customStepsResults.map((step, index) => (
+                <Card key={index} className="overflow-hidden">
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <StatusIndicator 
+                        status={step.status || (step.success ? "success" : "failure")} 
+                        size="sm" 
+                      />
+                      <span>Step {index + 1}: {step.instruction}</span>
+                    </CardTitle>
+                  </CardHeader>
+                  {step.llmDecision && (
+                    <CardContent className="pb-0 pt-0">
+                      <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="llm-decision">
+                          <AccordionTrigger className="text-sm py-2">
+                            LLM Decision Details
+                          </AccordionTrigger>
+                          <AccordionContent>
+                            <div className="space-y-2 text-sm">
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="font-semibold">Action:</div>
+                                <div>{step.llmDecision.action}</div>
+                                <div className="font-semibold">Confidence:</div>
+                                <div>{step.llmDecision.confidence}%</div>
+                              </div>
+                              <div className="pt-2">
+                                <div className="font-semibold">Reasoning:</div>
+                                <div className="mt-1 text-muted-foreground">{step.llmDecision.reasoning}</div>
+                              </div>
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      </Accordion>
+                    </CardContent>
+                  )}
+                  {step.error && (
+                    <CardContent className="pb-4">
+                      <div className="bg-destructive/10 p-2 rounded text-sm text-destructive">
+                        <div className="font-semibold">Error:</div>
+                        <div>{step.error}</div>
+                      </div>
+                    </CardContent>
+                  )}
+                  {step.screenshot && (
+                    <CardFooter className="p-0">
+                      <img 
+                        src={step.screenshot} 
+                        alt={`Screenshot for step ${index + 1}`} 
+                        className="w-full object-contain max-h-64"
+                      />
+                    </CardFooter>
+                  )}
+                </Card>
+              ))
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <Info className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                <p>No custom steps were executed in this test</p>
+              </div>
             )}
+          </TabsContent>
+          
+          <TabsContent value="screenshots" className="mt-4">
+            <Screenshots steps={results.steps} />
+          </TabsContent>
+        </Tabs>
+
+        {results.errors.length > 0 && (
+          <div className="pt-4">
+            <ErrorDisplay errors={results.errors} />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+interface StepCardProps {
+  step: TestStep;
+  index: number;
+}
+
+function StepCard({ step, index }: StepCardProps) {
+  const getIcon = () => {
+    switch (step.status) {
+      case "success":
+        return <CheckCircle className="h-5 w-5 text-success" />;
+      case "failure":
+        return <XCircle className="h-5 w-5 text-destructive" />;
+      case "running":
+        return <AlertTriangle className="h-5 w-5 text-warning" />;
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="py-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          {getIcon()}
+          <span>Step {index + 1}: {step.name}</span>
+          {step.duration && <span className="text-xs text-muted-foreground ml-auto">{step.duration}ms</span>}
+        </CardTitle>
+      </CardHeader>
+      {step.error && (
+        <CardContent className="py-0">
+          <div className="bg-destructive/10 p-2 rounded text-sm text-destructive">
+            {step.error}
           </div>
         </CardContent>
-      </Card>
-
-      <Screenshots steps={results.steps} />
-    </div>
+      )}
+      {step.llmDecision && (
+        <CardContent className="pb-0 pt-0">
+          <Accordion type="single" collapsible className="w-full">
+            <AccordionItem value="llm-decision">
+              <AccordionTrigger className="text-sm py-2">
+                LLM Decision Details
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="space-y-2 text-sm">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="font-semibold">Action:</div>
+                    <div>{step.llmDecision.action}</div>
+                    <div className="font-semibold">Confidence:</div>
+                    <div>{step.llmDecision.confidence}%</div>
+                  </div>
+                  <div className="pt-2">
+                    <div className="font-semibold">Reasoning:</div>
+                    <div className="mt-1 text-muted-foreground">{step.llmDecision.reasoning}</div>
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </CardContent>
+      )}
+      {step.screenshot && (
+        <CardFooter className="p-0">
+          <img 
+            src={step.screenshot} 
+            alt={`Screenshot for step ${index + 1}: ${step.name}`} 
+            className="w-full object-contain max-h-64"
+          />
+        </CardFooter>
+      )}
+    </Card>
   );
 } 

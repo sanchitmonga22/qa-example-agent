@@ -1,4 +1,4 @@
-import { TestBookingFlowResponse, TestHistoryItem, TestStatusResponse } from '../types';
+import { CustomStepResult, TestBookingFlowResponse, TestHistoryItem, TestStatusResponse } from '../types';
 
 /**
  * Service for managing test results
@@ -59,6 +59,38 @@ export class TestResultService {
     testStatus.progress = progress;
     this.testStatuses.set(testId, testStatus);
 
+    return testStatus;
+  }
+
+  /**
+   * Update test with custom step result
+   */
+  public updateTestWithCustomStepResult(
+    testId: string, 
+    customStepResult: CustomStepResult
+  ): TestStatusResponse | null {
+    const testStatus = this.testStatuses.get(testId);
+    if (!testStatus) return null;
+
+    if (!testStatus.result) {
+      testStatus.result = {
+        testId,
+        success: false,
+        demoFlowFound: false,
+        bookingSuccessful: false,
+        steps: [],
+        totalDuration: 0,
+        errors: [],
+        customStepsResults: [customStepResult],
+        url: ''
+      };
+    } else if (testStatus.result.customStepsResults) {
+      testStatus.result.customStepsResults.push(customStepResult);
+    } else {
+      testStatus.result.customStepsResults = [customStepResult];
+    }
+
+    this.testStatuses.set(testId, testStatus);
     return testStatus;
   }
 

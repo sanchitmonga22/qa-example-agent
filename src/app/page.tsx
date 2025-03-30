@@ -11,17 +11,26 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [testResults, setTestResults] = useState<TestBookingFlowResponse | null>(null);
 
-  const runTest = async (url: string) => {
+  const runTest = async (url: string, customSteps?: string[]) => {
     try {
       setIsLoading(true);
       setTestResults(null);
+      
+      const requestBody: any = { 
+        url, 
+        options: { timeout: 60000, screenshotCapture: true }
+      };
+      
+      if (customSteps && customSteps.length > 0) {
+        requestBody.customSteps = customSteps;
+      }
       
       const response = await fetch('/api/test-booking-flow', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url, options: { timeout: 60000, screenshotCapture: true } }),
+        body: JSON.stringify(requestBody),
       });
       
       if (!response.ok) {
@@ -62,7 +71,7 @@ export default function Home() {
           <CardHeader>
             <CardTitle>Test Your Landing Page</CardTitle>
             <CardDescription>
-              Enter the URL of your landing page to start testing
+              Enter the URL of your landing page to start testing. You can also add custom test steps to validate specific interactions.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -73,10 +82,28 @@ export default function Home() {
 
       {(isLoading || testResults) && (
         <section className="max-w-5xl mx-auto">
-          <TestResults 
-            results={testResults} 
-            isLoading={isLoading} 
-          />
+          {isLoading ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Testing in progress...</CardTitle>
+                <CardDescription>
+                  Please wait while we test your landing page
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    We are currently testing the booking flow on your landing page. This may take up to a minute.
+                  </p>
+                  <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-primary rounded-full animate-pulse" style={{ width: '60%' }}></div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ) : testResults ? (
+            <TestResults results={testResults} />
+          ) : null}
         </section>
       )}
     </div>

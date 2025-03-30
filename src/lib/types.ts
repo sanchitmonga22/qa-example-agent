@@ -3,6 +3,7 @@
  */
 export interface TestBookingFlowRequest {
   url: string;
+  customSteps?: string[];
   options?: {
     timeout?: number;
     screenshotCapture?: boolean;
@@ -18,6 +19,7 @@ export interface TestStep {
   duration?: number;
   screenshot?: string;
   error?: string;
+  llmDecision?: LLMDecision;
 }
 
 /**
@@ -41,6 +43,7 @@ export interface TestBookingFlowResponse {
   steps: TestStep[];
   totalDuration: number;
   errors: TestError[];
+  customStepsResults?: CustomStepResult[];
 }
 
 /**
@@ -64,4 +67,63 @@ export interface TestHistoryItem {
   success: boolean;
   demoFlowFound: boolean;
   bookingSuccessful: boolean;
+}
+
+/**
+ * LLM Types
+ */
+
+export interface PageElement {
+  tag: string;
+  type?: string;
+  id?: string;
+  classes?: string[];
+  text?: string;
+  placeholder?: string;
+  name?: string;
+  href?: string;
+  visible: boolean;
+  rect: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
+
+export interface PageState {
+  title: string;
+  url: string;
+  screenshot: string;
+  elements: PageElement[];
+  timestamp: string;
+}
+
+export interface LLMDecision {
+  action: 'click' | 'type' | 'select' | 'wait' | 'submit' | 'verify';
+  targetElement?: PageElement;
+  value?: string;
+  confidence: number;
+  reasoning: string;
+}
+
+export interface ElementSelection {
+  elementId: string;
+  confidence: number;
+  reasoning: string;
+}
+
+export interface FormFieldIdentification {
+  fieldType: 'name' | 'email' | 'phone' | 'company' | 'message' | 'job-title' | 'other';
+  valueToUse: string;
+  confidence: number;
+}
+
+export interface CustomStepResult {
+  instruction: string;
+  success: boolean;
+  screenshot?: string;
+  llmDecision?: LLMDecision;
+  error?: string;
+  status?: "success" | "failure" | "running";
 } 

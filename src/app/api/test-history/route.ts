@@ -9,10 +9,7 @@ export async function GET(request: NextRequest) {
     const testResultService = TestResultService.getInstance();
     const history = testResultService.getAllTestHistory();
     
-    return NextResponse.json({
-      success: true,
-      history
-    });
+    return NextResponse.json(history);
   } catch (error) {
     console.error('Error fetching test history:', error);
     

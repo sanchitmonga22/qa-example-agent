@@ -28,9 +28,17 @@
   - [x] URL validation logic
   - [x] Loading state handling
   - [x] Error state handling
+- [ ] Update `UrlInputForm` to include custom test steps
+  - [ ] Add expandable test steps list
+  - [ ] Implement "+" button to add new steps
+  - [ ] Create natural language input for each step
+  - [ ] Add delete/edit functionality for steps
 - [x] Create `TestResults` component
   - [x] Results display layout
   - [x] Step-by-step results visualization
+- [ ] Update `TestResults` to show custom test steps
+  - [ ] Display user-defined steps in results
+  - [ ] Show LLM decision process for each step
 - [x] Create `StatusIndicator` component
   - [x] Visual indicators for running/success/failure states
 - [x] Create `ErrorDisplay` component
@@ -46,6 +54,7 @@
 - [x] Implement URL input state
 - [x] Implement test execution state
 - [x] Implement results storage and display state
+- [ ] Implement custom test steps state management
 - [ ] Set up context for global state if needed
 
 ## 3. Backend Development
@@ -55,6 +64,7 @@
   - [x] Request validation
   - [x] Error handling
   - [x] Response formatting
+- [ ] Update `/api/test-booking-flow` to accept custom test steps
 - [x] Implement `/api/test-status/:id` endpoint (for long-running tests)
   - [x] Status tracking
   - [x] Timeout handling
@@ -62,6 +72,22 @@
   - [x] List all test history
 - [x] Implement `/api/test-history/:id` endpoint
   - [x] Get specific test details
+
+### LLM Integration
+- [ ] Create base LLM service interface
+  - [ ] Define common methods for LLM interactions
+  - [ ] Set up prompt templating system
+  - [ ] Implement response parsing utilities
+- [ ] Implement OpenAI LLM service
+  - [ ] Create API client for OpenAI
+  - [ ] Set up authentication
+  - [ ] Implement chat completion methods
+  - [ ] Create domain-specific prompts for web navigation
+- [ ] Implement LLM-guided decision making
+  - [ ] Create methods to extract DOM elements
+  - [ ] Build screenshot capture and encoding utilities
+  - [ ] Develop element selection prompts
+  - [ ] Implement validation of LLM responses
 
 ### Playwright Integration
 - [x] Create `BookingFlowTest` class
@@ -71,6 +97,11 @@
   - [x] Form interaction logic
   - [x] Screenshot capture
   - [x] Test result formatting
+- [ ] Extend `BookingFlowTest` for LLM-guided testing
+  - [ ] Add DOM element extraction
+  - [ ] Implement LLM decision loop
+  - [ ] Create step-by-step execution based on custom steps
+  - [ ] Add detailed reporting of LLM decisions
 - [x] Implement `TestDataGenerator` utility
   - [x] Random name generation
   - [x] Email generation
@@ -80,6 +111,7 @@
 
 ### Test Orchestration
 - [x] Create `TestResultService` for managing test results
+- [ ] Update `TestResultService` to include custom test steps
 - [ ] Set up test queuing mechanism
 - [ ] Implement concurrent test handling
 - [x] Create resource management logic
@@ -87,6 +119,22 @@
   - [x] Memory usage optimization
 
 ## 4. Testing Logic Implementation
+
+### LLM-Guided Navigation
+- [ ] Implement DOM element extraction for LLM
+  - [ ] Extract accessible elements
+  - [ ] Create serializable representation of page elements
+  - [ ] Generate element selection options
+- [ ] Create LLM interaction loop
+  - [ ] Display current state to LLM
+  - [ ] Get action recommendations
+  - [ ] Execute actions
+  - [ ] Validate results
+  - [ ] Repeat until goal is reached
+- [ ] Create intelligent fallback strategies
+  - [ ] Handle cases where LLM suggestions fail
+  - [ ] Implement alternative element selection approaches
+  - [ ] Provide detailed feedback to LLM for retry
 
 ### Landing Page Testing
 - [x] Implement page load and validation
@@ -194,3 +242,37 @@
 - [ ] Complete user acceptance testing
 - [ ] Prepare launch announcement
 - [ ] Schedule post-launch monitoring 
+
+## 11. LLM Integration Specifics
+
+### LLM Service Implementation
+- [ ] Create base LLM service interface
+  - [ ] Define request/response models
+  - [ ] Set up abstract methods for completion
+  - [ ] Create prompt template system
+- [ ] Implement OpenAI service
+  - [ ] Set up API client with authentication
+  - [ ] Implement chat completion methods
+  - [ ] Create rate limiting and error handling
+  - [ ] Build response parsing utilities
+- [ ] Create specialized prompts for web testing
+  - [ ] Element identification prompts
+  - [ ] Action decision prompts
+  - [ ] Validation and verification prompts
+
+### LLM-Guided Testing Flow
+- [ ] Implement DOM serialization for LLM context
+  - [ ] Extract important page elements
+  - [ ] Create simplified DOM representation
+  - [ ] Optimize screenshot encoding
+- [ ] Build iterative testing loop
+  - [ ] Present current state to LLM
+  - [ ] Get next action recommendation
+  - [ ] Execute recommended action
+  - [ ] Capture results and update context
+  - [ ] Continue until goal is reached or error occurs
+- [ ] Implement custom test step execution
+  - [ ] Parse natural language steps
+  - [ ] Convert to actionable LLM instructions
+  - [ ] Track progress through steps
+  - [ ] Report detailed results for each step 

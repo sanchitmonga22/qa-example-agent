@@ -11,6 +11,7 @@ export class BookingFlowTest {
   private steps: TestStep[] = [];
   private errors: TestError[] = [];
   private startTime: number = 0;
+  private url: string = '';
   private options = {
     timeout: 30000,
     screenshotCapture: true
@@ -18,6 +19,7 @@ export class BookingFlowTest {
 
   constructor(request: TestBookingFlowRequest) {
     this.testId = generateTestId();
+    this.url = request.url;
     
     if (request.options) {
       this.options = {
@@ -330,6 +332,7 @@ export class BookingFlowTest {
     return {
       success: demoFlowFound && bookingSuccessful,
       testId: this.testId,
+      url: this.url,
       demoFlowFound,
       bookingSuccessful,
       steps: this.steps,

@@ -16,57 +16,30 @@ export default function Home() {
       setIsLoading(true);
       setTestResults(null);
       
-      // In a real implementation, this would call the API endpoint
-      // For now, we'll simulate an API call with a timeout
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      const response = await fetch('/api/test-booking-flow', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url, options: { timeout: 60000, screenshotCapture: true } }),
+      });
       
-      // Mock response for demonstration purposes
-      const mockResponse: TestBookingFlowResponse = {
-        success: true,
-        testId: `test-${Date.now()}`,
-        demoFlowFound: true,
-        bookingSuccessful: true,
-        totalDuration: 6390,
-        errors: [],
-        steps: [
-          {
-            name: "Landing Page Load",
-            status: "success",
-            duration: 1240,
-            screenshot: undefined, // In real implementation, this would be a base64 image
-          },
-          {
-            name: "Demo Button Detection",
-            status: "success",
-            duration: 350,
-            screenshot: undefined,
-          },
-          {
-            name: "Form Fill",
-            status: "success",
-            duration: 2100,
-            screenshot: undefined,
-          },
-          {
-            name: "Form Submission",
-            status: "success",
-            duration: 1800,
-            screenshot: undefined,
-          },
-          {
-            name: "Confirmation Detection",
-            status: "success",
-            duration: 900,
-            screenshot: undefined,
-          }
-        ]
-      };
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to run test');
+      }
       
-      setTestResults(mockResponse);
-      toast.success("Test completed successfully!");
+      const result: TestBookingFlowResponse = await response.json();
+      setTestResults(result);
+      
+      if (result.success) {
+        toast.success("Test completed successfully!");
+      } else {
+        toast.error("Test completed with errors");
+      }
     } catch (error) {
       console.error("Error running test:", error);
-      toast.error("Failed to run test. Please try again.");
+      toast.error(error instanceof Error ? error.message : "Failed to run test. Please try again.");
     } finally {
       setIsLoading(false);
     }

@@ -35,6 +35,7 @@ export interface TestError {
 export interface TestBookingFlowResponse {
   success: boolean;
   testId: string;
+  url: string;
   demoFlowFound: boolean;
   bookingSuccessful: boolean;
   steps: TestStep[];

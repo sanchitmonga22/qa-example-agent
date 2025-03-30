@@ -78,7 +78,7 @@ export class TestResultService {
     // Create history item
     const historyItem: TestHistoryItem = {
       id: result.testId,
-      url: result.steps.find(step => step.name === 'page_navigation')?.screenshot?.split(',')[0] || '',
+      url: result.url || 'Unknown URL',
       timestamp: new Date().toISOString(),
       success: result.success,
       demoFlowFound: result.demoFlowFound,

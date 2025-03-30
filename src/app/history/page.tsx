@@ -12,42 +12,24 @@ export default function HistoryPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // In a real implementation, this would fetch from an API or local storage
-    // Simulating API call with timeout
     const loadTestHistory = async () => {
       setIsLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Mock history data
-      const mockHistory: TestHistoryItem[] = [
-        {
-          id: "test-1648212345678",
-          url: "https://example.com/landing-1",
-          timestamp: "2023-03-25T14:30:45Z",
-          success: true,
-          demoFlowFound: true,
-          bookingSuccessful: true
-        },
-        {
-          id: "test-1648112345678",
-          url: "https://example.com/landing-2",
-          timestamp: "2023-03-24T10:15:30Z",
-          success: false,
-          demoFlowFound: true,
-          bookingSuccessful: false
-        },
-        {
-          id: "test-1647912345678",
-          url: "https://example.com/landing-3",
-          timestamp: "2023-03-22T09:45:12Z",
-          success: false,
-          demoFlowFound: false,
-          bookingSuccessful: false
+      try {
+        const response = await fetch('/api/test-history');
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch test history');
         }
-      ];
-      
-      setTestHistory(mockHistory);
-      setIsLoading(false);
+        
+        const data = await response.json();
+        setTestHistory(data);
+      } catch (error) {
+        console.error('Error loading test history:', error);
+        // Use empty array if error occurs
+        setTestHistory([]);
+      } finally {
+        setIsLoading(false);
+      }
     };
     
     loadTestHistory();

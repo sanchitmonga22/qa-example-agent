@@ -198,17 +198,25 @@ Respond with a JSON array of field identifications.
     currentStep: string,
     previousActions?: LLMDecision[]
   ): Promise<LLMDecision> {
-    const systemPrompt = `You are an expert web testing assistant. Your task is to determine the next action to take based on the current page state and test progress.`;
+    const systemPrompt = `You are an expert web testing assistant that precisely follows instructions to automate web interactions.
+Your task is to determine the next action to take based on the current page state and test progress.
+You must keep executing actions until the current step is FULLY complete, and you must explicitly indicate when you believe the step is complete.
+
+For contact or booking forms, complete all available fields and submit the form.
+A complete interaction typically involves:
+1. Filling all required fields (name, email, message, etc.)
+2. Filling any optional fields when appropriate
+3. Final form submission by clicking a submit button
+
+IMPORTANT: Only report step completion when you are CERTAIN the goal has been achieved.`;
     
-    const previousActionsText = previousActions ? 
-      `Previous actions:\n${previousActions.map((a, i) => 
-        `${i+1}. ${a.action} - ${a.reasoning}`).join('\n')}` : 
-      'No previous actions.';
+    const previousActionsText = previousActions && previousActions.length > 0 ? 
+      `Previous actions taken for this step (${previousActions.length} total):\n${previousActions.map((a, i) => 
+        `${i+1}. Action: ${a.action}${a.targetElement ? ` on element ${a.targetElement.tag}${a.targetElement.text ? ` with text "${a.targetElement.text}"` : ''}` : ''}${a.value ? ` with value "${a.value}"` : ''}\n   Result: ${a.reasoning.includes('Error:') ? 'FAILED - ' + a.reasoning.split('Error:')[1].trim() : 'SUCCESS'}`).join('\n')}` : 
+      'No previous actions taken for this step yet.';
     
     const prompt = `
-Based on the current state of the page and the test progress, determine the next action to take.
-
-Current test step: "${currentStep}"
+Current test step to complete: "${currentStep}"
 
 ${previousActionsText}
 
@@ -216,15 +224,22 @@ Current page state:
 Title: ${pageState.title}
 URL: ${pageState.url}
 
-Available elements:
+Available elements (${pageState.elements.length} total):
 ${this.formatElementsForPrompt(pageState)}
 
+Based on the current test step "${currentStep}" and your actions so far, determine what to do next.
+
+${previousActions && previousActions.length > 0 ? 
+  `Is this step complete? If YES, use 'verify' action and include "step complete" in your reasoning.
+If NO, what is the next logical action to complete this step?` : 
+  `What is the first action needed to begin completing this step?`}
+
 Respond with a JSON object containing:
-1. action: The action to perform (click, type, select, wait, submit, verify)
-2. targetElementId: The element to target (use the element number)
-3. value: Any value to enter (for input fields)
+1. action: The action to perform (click, type, select, wait, submit, verify, hover, check, press)
+2. targetElementId: The element to target (use the element number, required for all actions except wait and press)
+3. value: Any value to enter (required for type, select, check, press actions)
 4. confidence: Your confidence in this action (0-100)
-5. reasoning: Brief explanation of your decision
+5. reasoning: Brief explanation of your decision, including whether you believe the step is now complete
 `;
 
     try {
@@ -234,12 +249,22 @@ Respond with a JSON object containing:
       const targetElementId = parsedResponse.targetElementId || "1";
       const targetElementIndex = parseInt(targetElementId) - 1;
       
+      // Determine if the step is complete based on the reasoning
+      const isComplete = parsedResponse.reasoning ? (
+        parsedResponse.reasoning.toLowerCase().includes('step complete') ||
+        parsedResponse.reasoning.toLowerCase().includes('goal complete') ||
+        parsedResponse.reasoning.toLowerCase().includes('task complete') ||
+        parsedResponse.reasoning.toLowerCase().includes('form submitted') ||
+        parsedResponse.reasoning.toLowerCase().includes('form completed')
+      ) : false;
+      
       return {
         action: parsedResponse.action || 'click',
-        targetElement: pageState.elements[targetElementIndex >= 0 ? targetElementIndex : 0],
+        targetElement: pageState.elements[targetElementIndex >= 0 && targetElementIndex < pageState.elements.length ? targetElementIndex : 0],
         value: parsedResponse.value,
         confidence: Number(parsedResponse.confidence || 50),
-        reasoning: parsedResponse.reasoning || "No reasoning provided"
+        reasoning: parsedResponse.reasoning || "No reasoning provided",
+        isComplete: isComplete
       };
     } catch (error) {
       console.error("Failed to determine next action:", error);
@@ -247,7 +272,8 @@ Respond with a JSON object containing:
         action: 'click',
         targetElement: pageState.elements[0],
         confidence: 0,
-        reasoning: `Failed to parse LLM response: ${error instanceof Error ? error.message : String(error)}`
+        reasoning: `Failed to parse LLM response: ${error instanceof Error ? error.message : String(error)}`,
+        isComplete: false
       };
     }
   }

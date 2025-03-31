@@ -147,122 +147,210 @@ export class BookingFlowTest {
    */
   private async executeCustomStep(instruction: string): Promise<CustomStepResult> {
     try {
-      // Extract page state for LLM context
-      const pageState = await this.extractPageState();
+      // Initialize the step state
+      const previousActions: LLMDecision[] = [];
+      let isStepComplete = false;
+      let finalSuccess = false;
+      let finalError: string | undefined = undefined;
+      let finalScreenshot = '';
+      let finalDecision: LLMDecision | undefined = undefined;
       
-      // Determine the action to take using LLM
-      const decision = await this.llmService!.determineNextAction(
-        pageState,
-        instruction
-      );
-      
-      // Convert PageElement to InteractableElement if needed
-      const targetElement = decision.targetElement ? this.convertToInteractableElement(decision.targetElement) : undefined;
-      
-      // Execute the action based on LLM decision using the DOM interactor
-      let success = false;
-      let error = undefined;
-      
-      try {
-        if (!this.domInteractor) {
-          throw new Error('DOM interactor not initialized');
+      // Continue executing actions until the LLM indicates the step is complete
+      while (!isStepComplete) {
+        // Extract page state for LLM context
+        const pageState = await this.extractPageState();
+        
+        // Determine the action to take using LLM
+        const decision = await this.llmService!.determineNextAction(
+          pageState,
+          instruction,
+          previousActions
+        );
+        
+        // Store this decision for the feedback loop
+        previousActions.push(decision);
+        finalDecision = decision;
+        
+        // Convert PageElement to InteractableElement if needed
+        const targetElement = decision.targetElement ? this.convertToInteractableElement(decision.targetElement) : undefined;
+        
+        // Execute the action based on LLM decision using the DOM interactor
+        let actionSuccess = false;
+        let actionError = undefined;
+        
+        try {
+          if (!this.domInteractor) {
+            throw new Error('DOM interactor not initialized');
+          }
+          
+          switch (decision.action) {
+            case 'click':
+              if (targetElement) {
+                actionSuccess = await this.domInteractor.click(targetElement);
+              } else {
+                actionError = 'No target element provided for click action';
+              }
+              break;
+              
+            case 'type':
+              if (targetElement && decision.value) {
+                actionSuccess = await this.domInteractor.fill(targetElement, decision.value);
+              } else {
+                actionError = 'Target element or value missing for type action';
+              }
+              break;
+              
+            case 'select':
+              if (targetElement && decision.value) {
+                actionSuccess = await this.domInteractor.select(targetElement, decision.value);
+              } else {
+                actionError = 'Target element or value missing for select action';
+              }
+              break;
+              
+            case 'submit':
+              if (targetElement) {
+                actionSuccess = await this.domInteractor.submitForm(targetElement);
+              } else {
+                actionSuccess = await this.domInteractor.submitForm();
+              }
+              break;
+              
+            case 'wait':
+              if (targetElement) {
+                actionSuccess = await this.domInteractor.waitForElement(targetElement);
+              } else {
+                // General wait
+                await this.page!.waitForTimeout(2000);
+                actionSuccess = true;
+              }
+              break;
+              
+            case 'verify':
+              if (targetElement) {
+                actionSuccess = await this.domInteractor.exists(targetElement);
+              } else {
+                actionError = 'No target element provided for verify action';
+              }
+              
+              // Special case: verify can be used to check if the step is complete
+              if (actionSuccess && decision.reasoning.toLowerCase().includes('complete') ||
+                  decision.reasoning.toLowerCase().includes('finish') ||
+                  decision.reasoning.toLowerCase().includes('success') ||
+                  decision.reasoning.toLowerCase().includes('done')) {
+                isStepComplete = true;
+                finalSuccess = true;
+              }
+              break;
+              
+            case 'hover':
+              if (targetElement) {
+                actionSuccess = await this.domInteractor.hover(targetElement);
+              } else {
+                actionError = 'No target element provided for hover action';
+              }
+              break;
+              
+            case 'check':
+              if (targetElement) {
+                const state = decision.value === 'false' ? false : true;
+                actionSuccess = await this.domInteractor.check(targetElement, state);
+              } else {
+                actionError = 'No target element provided for check action';
+              }
+              break;
+              
+            case 'press':
+              if (decision.value) {
+                actionSuccess = await this.domInteractor.pressKey(decision.value);
+              } else {
+                actionError = 'No key provided for press action';
+              }
+              break;
+              
+            default:
+              actionError = `Unsupported action: ${decision.action}`;
+          }
+          
+          // Check if the LLM explicitly indicates the step is complete
+          if (decision.isComplete) {
+            isStepComplete = true;
+            finalSuccess = actionSuccess;
+          }
+          
+          // Check if the reasoning indicates step completion
+          else if (decision.reasoning && (
+              decision.reasoning.toLowerCase().includes('step complete') ||
+              decision.reasoning.toLowerCase().includes('goal complete') ||
+              decision.reasoning.toLowerCase().includes('task complete') ||
+              decision.reasoning.toLowerCase().includes('form submitted') ||
+              decision.reasoning.toLowerCase().includes('form completed') ||
+              (decision.action === 'submit' && actionSuccess))) {
+            isStepComplete = true;
+            finalSuccess = actionSuccess;
+          }
+          
+          // If the action failed, mark step as complete but failed
+          if (!actionSuccess) {
+            finalError = actionError;
+            // If action failed multiple times with the same target, consider the step failed and exit
+            const similarFailedActions = previousActions.filter(a => 
+              !a.targetElement ? false : 
+              a.targetElement.id === decision.targetElement?.id && 
+              a.action === decision.action && 
+              !actionSuccess
+            );
+            
+            if (similarFailedActions.length >= 2) {
+              isStepComplete = true;
+              finalSuccess = false;
+            }
+          }
+          
+          // If we've tried too many actions, consider the step failed
+          if (previousActions.length >= 10) {
+            isStepComplete = true;
+            finalSuccess = false;
+            finalError = finalError || 'Too many actions attempted without completing the step';
+          }
+          
+          // Capture screenshot
+          finalScreenshot = await this.domInteractor.takeScreenshot() || '';
+          
+        } catch (e) {
+          actionError = e instanceof Error ? e.message : String(e);
+          actionSuccess = false;
+          
+          // If exception occurred, still add to previous actions to inform LLM
+          previousActions[previousActions.length - 1] = {
+            ...previousActions[previousActions.length - 1],
+            reasoning: `${previousActions[previousActions.length - 1].reasoning} (Error: ${actionError})`
+          };
+          
+          // If we've had multiple consecutive errors, exit the loop
+          const consecutiveErrors = previousActions.slice(-3).every(a => 
+            a.reasoning.includes('Error:')
+          );
+          
+          if (consecutiveErrors) {
+            isStepComplete = true;
+            finalSuccess = false;
+            finalError = actionError;
+          }
         }
         
-        switch (decision.action) {
-          case 'click':
-            if (targetElement) {
-              success = await this.domInteractor.click(targetElement);
-            } else {
-              error = 'No target element provided for click action';
-            }
-            break;
-            
-          case 'type':
-            if (targetElement && decision.value) {
-              success = await this.domInteractor.fill(targetElement, decision.value);
-            } else {
-              error = 'Target element or value missing for type action';
-            }
-            break;
-            
-          case 'select':
-            if (targetElement && decision.value) {
-              success = await this.domInteractor.select(targetElement, decision.value);
-            } else {
-              error = 'Target element or value missing for select action';
-            }
-            break;
-            
-          case 'submit':
-            if (targetElement) {
-              success = await this.domInteractor.submitForm(targetElement);
-            } else {
-              success = await this.domInteractor.submitForm();
-            }
-            break;
-            
-          case 'wait':
-            if (targetElement) {
-              success = await this.domInteractor.waitForElement(targetElement);
-            } else {
-              // General wait
-              await this.page!.waitForTimeout(2000);
-              success = true;
-            }
-            break;
-            
-          case 'verify':
-            if (targetElement) {
-              success = await this.domInteractor.exists(targetElement);
-            } else {
-              error = 'No target element provided for verify action';
-            }
-            break;
-            
-          case 'hover':
-            if (targetElement) {
-              success = await this.domInteractor.hover(targetElement);
-            } else {
-              error = 'No target element provided for hover action';
-            }
-            break;
-            
-          case 'check':
-            if (targetElement) {
-              const state = decision.value === 'false' ? false : true;
-              success = await this.domInteractor.check(targetElement, state);
-            } else {
-              error = 'No target element provided for check action';
-            }
-            break;
-            
-          case 'press':
-            if (decision.value) {
-              success = await this.domInteractor.pressKey(decision.value);
-            } else {
-              error = 'No key provided for press action';
-            }
-            break;
-            
-          default:
-            error = `Unsupported action: ${decision.action}`;
-        }
-      } catch (e) {
-        error = e instanceof Error ? e.message : String(e);
-        success = false;
+        // Add a short delay between actions to avoid overwhelming the page
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
       
-      // Capture screenshot
-      const screenshot = await this.domInteractor?.takeScreenshot() || '';
-      
-      // Return the result
+      // Return the final result
       return {
         instruction,
-        success,
-        error,
-        screenshot,
-        llmDecision: decision,
-        status: success ? "success" : "failure"
+        success: finalSuccess,
+        error: finalError,
+        screenshot: finalScreenshot,
+        llmDecision: finalDecision,
+        status: finalSuccess ? "success" : "failure"
       };
     } catch (error) {
       return {

@@ -106,6 +106,7 @@ export interface LLMDecision {
   confidence: number;
   reasoning: string;
   explanation?: string;
+  isComplete?: boolean;
 }
 
 export interface ElementSelection {

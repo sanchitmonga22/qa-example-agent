@@ -41,9 +41,7 @@ export async function POST(request: NextRequest) {
     const tester = new WebSiteTest(testRequest);
     
     // If custom steps are provided, use them in the test
-    const result: TestWebsiteResponse = testRequest.customSteps && testRequest.customSteps.length > 0
-      ? await tester.runTestWithCustomSteps(testRequest.url, testRequest.customSteps)
-      : await tester.runTest(testRequest.url);
+    const result: TestWebsiteResponse = await tester.runTestWithCustomSteps(testRequest.url, testRequest.customSteps || []);
     
     // Save result to test history service
     const testResultService = TestResultService.getInstance();

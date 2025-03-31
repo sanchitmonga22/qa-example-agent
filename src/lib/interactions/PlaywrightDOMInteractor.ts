@@ -47,6 +47,22 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
       );
       
       if (safeClasses.length > 0) {
+        // For flex class, be more specific to target form elements only
+        if (safeClasses.includes('flex')) {
+          // Prioritize input elements when flex class is present
+          if (element.tag === 'input' || element.tag === 'textarea' || element.tag === 'select') {
+            return `${element.tag}${safeClasses.map(c => `.${c}`).join('')}`;
+          }
+          // For other tags, be more specific by combining tag and class
+          else if (element.tag) {
+            return `${element.tag}.${safeClasses[0]}`;
+          }
+          // If no tag but we have multiple classes, try to be more specific with multiple classes
+          else if (safeClasses.length > 1) {
+            return `.${safeClasses[0]}.${safeClasses[1]}`;
+          }
+        }
+        
         return `.${safeClasses[0]}`; // Just use the first safe class
       }
     }
@@ -80,6 +96,24 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
   }
 
   /**
+   * Scroll element into view before interaction
+   * @private
+   */
+  private async ensureElementInView(element: InteractableElement): Promise<ElementHandle | null> {
+    try {
+      const elementHandle = await this.findElement(element);
+      if (elementHandle) {
+        await elementHandle.scrollIntoViewIfNeeded();
+        return elementHandle;
+      }
+      return null;
+    } catch (error) {
+      console.error('Scroll into view error:', error);
+      return null;
+    }
+  }
+
+  /**
    * Navigate to a URL
    */
   async navigate(url: string, options?: NavigationOptions): Promise<boolean> {
@@ -101,6 +135,27 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
   async click(element: InteractableElement): Promise<boolean> {
     try {
       const selector = this.buildSelector(element);
+      
+      // Ensure element is visible by scrolling to it
+      const elementHandle = await this.ensureElementInView(element);
+      if (!elementHandle) {
+        console.warn(`Click failed: Element not found with selector ${selector}`);
+        return false;
+      }
+      
+      // Check if element is disabled
+      const isDisabled = await elementHandle.evaluate(el => {
+        return (el as HTMLElement).hasAttribute('disabled') || 
+               (el as HTMLElement).classList.contains('disabled') || 
+               (el as HTMLElement).getAttribute('aria-disabled') === 'true' ||
+               (el as HTMLElement).getAttribute('data-disabled') === 'true';
+      });
+      
+      if (isDisabled) {
+        console.warn(`Click skipped: Element with selector ${selector} is disabled`);
+        return false;
+      }
+      
       await this.page.click(selector);
       return true;
     } catch (error) {
@@ -115,6 +170,38 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
   async fill(element: InteractableElement, value: string): Promise<boolean> {
     try {
       const selector = this.buildSelector(element);
+      
+      // Ensure element is visible by scrolling to it
+      const elementHandle = await this.ensureElementInView(element);
+      if (!elementHandle) {
+        console.warn(`Fill failed: Element not found with selector ${selector}`);
+        return false;
+      }
+      
+      // Verify element is an input, textarea, or has contenteditable attribute
+      const isFillable = await elementHandle.evaluate(el => {
+        const tagName = (el as HTMLElement).tagName.toLowerCase();
+        return tagName === 'input' || 
+               tagName === 'textarea' || 
+               tagName === 'select' || 
+               (el as HTMLElement).hasAttribute('contenteditable') ||
+               (el as HTMLElement).getAttribute('role') === 'textbox';
+      });
+      
+      if (!isFillable) {
+        console.warn(`Fill skipped: Element with selector ${selector} is not fillable`);
+        
+        // Try to find a more specific input element inside the current element
+        const inputInside = await this.page.$(`${selector} input, ${selector} textarea, ${selector} [contenteditable]`);
+        if (inputInside) {
+          await inputInside.scrollIntoViewIfNeeded();
+          await inputInside.fill(value);
+          return true;
+        }
+        
+        return false;
+      }
+      
       await this.page.fill(selector, value);
       return true;
     } catch (error) {
@@ -129,6 +216,14 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
   async select(element: InteractableElement, value: string): Promise<boolean> {
     try {
       const selector = this.buildSelector(element);
+      
+      // Ensure element is visible by scrolling to it
+      const elementHandle = await this.ensureElementInView(element);
+      if (!elementHandle) {
+        console.warn(`Select failed: Element not found with selector ${selector}`);
+        return false;
+      }
+      
       await this.page.selectOption(selector, value);
       return true;
     } catch (error) {
@@ -143,6 +238,14 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
   async check(element: InteractableElement, state: boolean = true): Promise<boolean> {
     try {
       const selector = this.buildSelector(element);
+      
+      // Ensure element is visible by scrolling to it
+      const elementHandle = await this.ensureElementInView(element);
+      if (!elementHandle) {
+        console.warn(`Check/uncheck failed: Element not found with selector ${selector}`);
+        return false;
+      }
+      
       if (state) {
         await this.page.check(selector);
       } else {
@@ -174,6 +277,14 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
   async hover(element: InteractableElement): Promise<boolean> {
     try {
       const selector = this.buildSelector(element);
+      
+      // Ensure element is visible by scrolling to it
+      const elementHandle = await this.ensureElementInView(element);
+      if (!elementHandle) {
+        console.warn(`Hover failed: Element not found with selector ${selector}`);
+        return false;
+      }
+      
       await this.page.hover(selector);
       return true;
     } catch (error) {

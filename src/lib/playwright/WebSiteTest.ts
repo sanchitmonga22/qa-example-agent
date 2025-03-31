@@ -20,7 +20,7 @@ export class WebSiteTest {
   private startTime: number = 0;
   private url: string = '';
   private options = {
-    timeout: 30000,
+    timeout: 300000,
     screenshotCapture: true
   };
   private llmService: BaseLLMService | null = null;
@@ -101,35 +101,7 @@ export class WebSiteTest {
       throw error;
     }
   }
-
-  /**
-   * Run the website test
-   */
-  async runTest(url: string): Promise<TestWebsiteResponse> {
-    try {
-      await this.initialize();
-      
-      // Step 1: Navigate to page
-      await this.navigateToPage(url);
-      
-      // Step 2: Find and click on primary CTA element
-      const ctaFound = await this.findAndClickPrimaryCTA();
-      
-      // Step 3: Fill out the form if found
-      let formSubmitted = false;
-      if (ctaFound) {
-        formSubmitted = await this.fillOutForm();
-      }
-
-      return this.generateResponse(ctaFound, formSubmitted);
-    } catch (error) {
-      this.addError('test_execution', 'Test execution failed', error);
-      return this.generateResponse(false, false);
-    } finally {
-      await this.cleanup();
-    }
-  }
-
+  
   /**
    * Run test with custom steps guided by LLM
    */
@@ -155,7 +127,6 @@ export class WebSiteTest {
         // Fall back to standard test if LLM service is not available
         this.addError('custom_steps', 'LLM service not available', 
           'The OpenAI API key is not configured. Falling back to standard test.');
-        return this.runTest(url);
       }
       
       // Determine success based on custom steps execution
@@ -501,220 +472,6 @@ export class WebSiteTest {
       this.updateStepStatus('page_navigation', 'failure');
       this.addError('page_navigation', 'Failed to navigate to page', error);
       throw error;
-    }
-  }
-
-  /**
-   * Find and click on primary CTA element
-   */
-  private async findAndClickPrimaryCTA(): Promise<boolean> {
-    try {
-      this.addStep('find_cta_button', 'running');
-      
-      if (!this.domInteractor) {
-        throw new Error('DOM interactor not initialized');
-      }
-      
-      // List of possible CTA button texts
-      const ctaTexts = [
-        "Book a Demo",
-        "Get a Demo",
-        "Request Demo",
-        "Schedule Demo",
-        "Book Demo",
-        "Get Demo",
-        "Sign Up",
-        "Get Started",
-        "Try Now",
-        "Contact Us",
-        "Learn More"
-      ];
-      
-      // Get all interactable elements
-      const elements = await this.domInteractor.getInteractableElements();
-      
-      // Find elements that might be CTA buttons
-      const ctaElements = elements.filter(el => {
-        // Check text content
-        if (el.text) {
-          return ctaTexts.some(text => 
-            el.text!.toLowerCase().includes(text.toLowerCase()));
-        }
-        
-        // Check for CTA in href
-        if (el.attributes?.href) {
-          return el.attributes.href.toLowerCase().includes('demo') || 
-                 el.attributes.href.toLowerCase().includes('book') ||
-                 el.attributes.href.toLowerCase().includes('signup') ||
-                 el.attributes.href.toLowerCase().includes('contact') ||
-                 el.attributes.href.toLowerCase().includes('register');
-        }
-        
-        return false;
-      });
-      
-      if (ctaElements.length === 0) {
-        this.updateStepStatus('find_cta_button', 'failure');
-        this.addError('find_cta_button', 'Could not find a CTA button or link', 
-          'None of the elements on the page match CTA button criteria.');
-        return false;
-      }
-      
-      // Click the first matching element
-      const success = await this.domInteractor.click(ctaElements[0]);
-      
-      if (!success) {
-        this.updateStepStatus('find_cta_button', 'failure');
-        this.addError('find_cta_button', 'Failed to click CTA button', 
-          'Element was found but could not be clicked.');
-        return false;
-      }
-      
-      // Wait for navigation or form to appear
-      try {
-        // First try to wait for form
-        const formWait = await this.domInteractor.waitForElement({
-          tag: 'form'
-        }, { timeout: 5000 });
-        
-        if (!formWait) {
-          // If no form, wait for navigation
-          await this.domInteractor.waitForNavigation();
-        }
-      } catch (error) {
-        // It's okay if neither happens, the button might reveal a form in-page
-      }
-      
-      await this.captureScreenshot('find_cta_button');
-      this.updateStepStatus('find_cta_button', 'success');
-      return true;
-    } catch (error) {
-      this.updateStepStatus('find_cta_button', 'failure');
-      this.addError('find_cta_button', 'Error while finding or clicking CTA button', error);
-      return false;
-    }
-  }
-
-  /**
-   * Fill out and submit the form
-   */
-  private async fillOutForm(): Promise<boolean> {
-    try {
-      this.addStep('fill_form', 'running');
-      
-      if (!this.domInteractor) {
-        throw new Error('DOM interactor not initialized');
-      }
-      
-      // Check if there's a form
-      const formExists = await this.domInteractor.exists({ tag: 'form' });
-      if (!formExists) {
-        this.updateStepStatus('fill_form', 'failure');
-        this.addError('fill_form', 'Could not find a form', 'No form element was detected on the page.');
-        return false;
-      }
-      
-      // Get all interactable elements
-      const elements = await this.domInteractor.getInteractableElements();
-      
-      // Filter for input fields
-      const nameInputs = elements.filter(el => 
-        el.tag === 'input' && 
-        (el.attributes?.type === 'text') && 
-        (el.attributes?.name?.toLowerCase().includes('name') || 
-         el.attributes?.placeholder?.toLowerCase().includes('name') ||
-         el.attributes?.['aria-label']?.toLowerCase().includes('name'))
-      );
-      
-      const emailInputs = elements.filter(el => 
-        el.tag === 'input' && 
-        (el.attributes?.type === 'email' || 
-         el.attributes?.name?.toLowerCase().includes('email') ||
-         el.attributes?.placeholder?.toLowerCase().includes('email'))
-      );
-      
-      const companyInputs = elements.filter(el => 
-        el.tag === 'input' && 
-        (el.attributes?.name?.toLowerCase().includes('company') || 
-         el.attributes?.placeholder?.toLowerCase().includes('company') ||
-         el.attributes?.['aria-label']?.toLowerCase().includes('company'))
-      );
-      
-      // Generate test data
-      const name = TestDataGenerator.generateName();
-      const email = TestDataGenerator.generateEmail();
-      const company = TestDataGenerator.generateCompanyName();
-      const phone = TestDataGenerator.generatePhoneNumber();
-      
-      // Fill in the form fields
-      if (nameInputs.length > 0) {
-        await this.domInteractor.fill(nameInputs[0], name);
-      }
-      
-      if (emailInputs.length > 0) {
-        await this.domInteractor.fill(emailInputs[0], email);
-      }
-      
-      if (companyInputs.length > 0) {
-        await this.domInteractor.fill(companyInputs[0], company);
-      }
-      
-      // Find and fill other common fields
-      const phoneInputs = elements.filter(el => 
-        el.tag === 'input' && 
-        (el.attributes?.type === 'tel' || 
-         el.attributes?.name?.toLowerCase().includes('phone') ||
-         el.attributes?.placeholder?.toLowerCase().includes('phone'))
-      );
-      
-      if (phoneInputs.length > 0) {
-        await this.domInteractor.fill(phoneInputs[0], phone);
-      }
-      
-      // Look for job title fields
-      const titleInputs = elements.filter(el => 
-        el.tag === 'input' && 
-        (el.attributes?.name?.toLowerCase().includes('title') || 
-         el.attributes?.name?.toLowerCase().includes('position') ||
-         el.attributes?.placeholder?.toLowerCase().includes('title') ||
-         el.attributes?.placeholder?.toLowerCase().includes('position'))
-      );
-      
-      if (titleInputs.length > 0) {
-        await this.domInteractor.fill(titleInputs[0], TestDataGenerator.generateJobTitle());
-      }
-      
-      await this.captureScreenshot('fill_form');
-      this.updateStepStatus('fill_form', 'success');
-      
-      // Submit the form
-      this.addStep('submit_form', 'running');
-      
-      // Try to submit the form
-      const success = await this.domInteractor.submitForm();
-      
-      if (!success) {
-        this.updateStepStatus('submit_form', 'failure');
-        this.addError('submit_form', 'Failed to submit the form', 'The form could not be submitted');
-        return false;
-      }
-      
-      // Wait for confirmation page or message
-      try {
-        await this.domInteractor.waitForElement({
-          selector: '.success, .thank-you, [data-success], h1:has-text("Thank You")'
-        }, { timeout: this.options.timeout });
-      } catch (error) {
-        // It's okay if this fails, not all forms have a success message
-      }
-      
-      await this.captureScreenshot('submit_form');
-      this.updateStepStatus('submit_form', 'success');
-      return true;
-    } catch (error) {
-      this.updateStepStatus('fill_form', 'failure');
-      this.addError('fill_form', 'Error while filling out the form', error);
-      return false;
     }
   }
   

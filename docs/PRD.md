@@ -39,7 +39,6 @@ Build a web app that verifies whether new users can successfully schedule a demo
 - A "Run Test" button to trigger the testing process.
 
 #### Results Dashboard
-- Display whether the demo booking flow was detected.
 - Show booking process results (success/failure).
 - List any errors or issues encountered during the test.
 - Provide screenshots or performance metrics from key steps.
@@ -52,8 +51,6 @@ Build a web app that verifies whether new users can successfully schedule a demo
 - Accepts a POST request with the landing page URL and optional custom test steps.
 - Triggers the Playwright automation script with LLM guidance.
 - Returns a structured JSON response with:
-  - `demo_flow_found`: Boolean indicating if the "Book a Demo" element was detected.
-  - `booking_successful`: Boolean indicating if the booking flow completed.
   - `custom_steps_results`: Array of results for each custom step.
   - `llm_decisions`: Array of LLM decisions made during the test.
   - `errors`: An array of error messages, if any.

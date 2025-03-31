@@ -10,7 +10,8 @@ const requestSchema = z.object({
   customSteps: z.array(z.string()).optional(),
   options: z.object({
     timeout: z.number().min(5000).max(120000).optional(),
-    screenshotCapture: z.boolean().optional()
+    screenshotCapture: z.boolean().optional(),
+    headless: z.boolean().optional()
   }).optional()
 });
 

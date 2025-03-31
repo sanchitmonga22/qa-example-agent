@@ -7,6 +7,7 @@ export interface TestWebsiteRequest {
   options?: {
     timeout?: number;
     screenshotCapture?: boolean;
+    headless?: boolean;
   };
 }
 
@@ -23,6 +24,8 @@ export interface TestStep {
   screenshot?: string;
   error?: string;
   llmDecision?: LLMDecision;
+  llmFeedback?: string;
+  parsedLLMFeedback?: LLMFeedback;
 }
 
 /**
@@ -47,6 +50,12 @@ export interface TestWebsiteResponse {
   totalDuration: number;
   errors: TestError[];
   customStepsResults?: CustomStepResult[];
+  testMetrics?: {
+    totalTests: number;
+    passedTests: number;
+    failedTests: number;
+    passRate: number;
+  };
 }
 
 // Keeping old type for backwards compatibility
@@ -133,6 +142,15 @@ export interface FormFieldIdentification {
   confidence: number;
 }
 
+/**
+ * LLM Structured Feedback
+ */
+export interface LLMFeedback {
+  status: "PASS" | "FAIL";
+  reason: string;
+  rawFeedback: string;
+}
+
 export interface CustomStepResult {
   instruction: string;
   success: boolean;
@@ -140,4 +158,6 @@ export interface CustomStepResult {
   llmDecision?: LLMDecision;
   error?: string;
   status?: "success" | "failure" | "running";
+  llmFeedback?: string;
+  parsedLLMFeedback?: LLMFeedback;
 } 

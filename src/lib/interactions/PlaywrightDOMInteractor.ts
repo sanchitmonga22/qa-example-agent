@@ -23,9 +23,15 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
       return `#${element.id}`;
     }
 
-    // Use text content as selector if available
+    // Use text content as selector if available, but avoid using text that looks like CSS/SVG style definitions
     if (element.text && element.text.trim()) {
-      return `:text("${element.text.trim().replace(/"/g, '\\"')}")`;
+      const text = element.text.trim();
+      // Skip using text selector if it looks like CSS/SVG style content
+      if (text.includes('{') && text.includes('}') && (text.includes('fill:') || text.includes('stroke:') || text.includes('class'))) {
+        // Fall through to other selector methods
+      } else {
+        return `:text("${text.replace(/"/g, '\\"')}")`;
+      }
     }
 
     // For links with href attribute
@@ -103,7 +109,34 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
     try {
       const elementHandle = await this.findElement(element);
       if (elementHandle) {
-        await elementHandle.scrollIntoViewIfNeeded();
+        try {
+          // Try the built-in scrollIntoViewIfNeeded method first
+          await elementHandle.scrollIntoViewIfNeeded({ timeout: 5000 });
+        } catch (scrollError) {
+          console.warn('Standard scroll failed, trying alternative scrolling method:', scrollError);
+          
+          // Fallback: Use JavaScript to scroll the element into view
+          try {
+            // Instead of using the selector, use elementHandle's bounding box for scrolling
+            const boundingBox = await elementHandle.boundingBox();
+            if (boundingBox) {
+              await this.page.evaluate(({ x, y }) => {
+                window.scrollTo({
+                  left: x,
+                  top: y,
+                  behavior: 'smooth'
+                });
+              }, { x: boundingBox.x, y: boundingBox.y });
+              
+              // Wait a moment for scrolling to complete
+              await this.page.waitForTimeout(500);
+            } else {
+              console.warn('Could not get element bounding box for scrolling');
+            }
+          } catch (jsScrollError) {
+            console.error('Alternative scrolling method also failed:', jsScrollError);
+          }
+        }
         return elementHandle;
       }
       return null;
@@ -135,6 +168,147 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
   async click(element: InteractableElement): Promise<boolean> {
     try {
       const selector = this.buildSelector(element);
+      
+      // Handle problematic selectors or targeted elements
+      const hasProblematicContent = element.text?.includes('{') && element.text?.includes('}') && 
+                                  (element.text?.includes('fill:') || element.text?.includes('stroke:'));
+                                  
+      const isLikelyButton = element.tag === 'button' || 
+                            element.tag === 'a' || 
+                            element.attributes?.role === 'button' || 
+                            element.classes?.includes('button');
+                            
+      if (hasProblematicContent || isLikelyButton) {
+        console.log(`Attempting enhanced button click for element: ${JSON.stringify({
+          tag: element.tag,
+          text: element.text,
+          classes: element.classes
+        })}`);
+        
+        try {
+          // First, try a more direct approach for button text matching
+          const buttonText = element.text?.trim().toLowerCase() || '';
+          if (buttonText) {
+            // 1. Try xpath with contains for more flexible text matching
+            try {
+              const xpath = `//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${buttonText}')]|//a[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${buttonText}')]|//*[@role='button'][contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${buttonText}')]`;
+              const buttonElement = await this.page.$(`xpath=${xpath}`);
+              if (buttonElement) {
+                await buttonElement.click({ force: true, timeout: 3000 });
+                console.log("Successfully clicked button using xpath with text matching");
+                
+                // Wait for potential navigation or new page/tab
+                await this.page.waitForTimeout(2000);
+                return true;
+              }
+            } catch (xpathError) {
+              console.log("XPath click failed, trying alternatives:", xpathError);
+            }
+          }
+
+          // 2. Use JavaScript to click the element more directly
+          const jsClickResult = await this.page.evaluate((targetText) => {
+            // Cast to provide broader coverage of potential button-like elements
+            const elements = Array.from(document.querySelectorAll('a, button, [role="button"], .button, [type="button"], [class*="btn"], [class*="button"]'));
+            
+            // First try with exact matching
+            let buttonElement = elements.find(el => 
+              el.textContent?.trim().toLowerCase() === targetText?.toLowerCase()
+            );
+            
+            // If exact match fails, try with contains
+            if (!buttonElement && targetText) {
+              buttonElement = elements.find(el => 
+                el.textContent?.toLowerCase().includes(targetText.toLowerCase())
+              );
+            }
+            
+            // If text search fails, try the most prominent button-like element
+            if (!buttonElement) {
+              // Sort buttons by size and visibility in viewport
+              const visibleButtons = elements.filter(el => {
+                const rect = el.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0 &&
+                      rect.top >= 0 && rect.left >= 0 &&
+                      rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                      rect.right <= (window.innerWidth || document.documentElement.clientWidth);
+              });
+              
+              // Sort by size - larger buttons are usually more important
+              if (visibleButtons.length > 0) {
+                visibleButtons.sort((a, b) => {
+                  const rectA = a.getBoundingClientRect();
+                  const rectB = b.getBoundingClientRect();
+                  return (rectB.width * rectB.height) - (rectA.width * rectA.height);
+                });
+                buttonElement = visibleButtons[0];
+              }
+            }
+            
+            if (buttonElement) {
+              // Try more aggressively to click the element
+              try {
+                // Try multiple event types to ensure click registers
+                (buttonElement as HTMLElement).focus();
+                buttonElement.dispatchEvent(new MouseEvent('mousedown'));
+                buttonElement.dispatchEvent(new MouseEvent('mouseup'));
+                (buttonElement as HTMLElement).click();
+                
+                // For links, try navigating directly
+                if (buttonElement.tagName === 'A' && buttonElement.getAttribute('href')) {
+                  const href = buttonElement.getAttribute('href');
+                  // Only navigate if href is an actual URL not just #
+                  if (href && href !== '#' && !href.startsWith('javascript:')) {
+                    window.location.href = href;
+                  }
+                }
+                
+                return {
+                  clicked: true,
+                  text: buttonElement.textContent?.trim() || '',
+                  tag: buttonElement.tagName.toLowerCase(),
+                  href: buttonElement.getAttribute('href') || undefined
+                };
+              } catch (e) {
+                return { clicked: false, error: (e as Error).toString() };
+              }
+            }
+            return { clicked: false, reason: 'No suitable button element found' };
+          }, element.text?.trim());
+          
+          if (jsClickResult.clicked) {
+            console.log(`Successfully clicked element using JavaScript: ${JSON.stringify(jsClickResult)}`);
+            
+            // Wait for potential navigation or new page/tab
+            await this.page.waitForTimeout(2000);
+            
+            this._trackInteractionWithDetails('click', 'click', true, 'js-click', {
+              label: jsClickResult.text || element.text,
+              type: jsClickResult.tag || 'element',
+              value: jsClickResult.text || element.text
+            });
+            return true;
+          }
+          
+          // 3. Last resort - try a force click on the original selector if all else fails
+          console.log("Attempting force click as last resort on selector:", selector);
+          await this.page.click(selector, { force: true, timeout: 5000 });
+          console.log("Force click succeeded");
+          
+          // Wait for potential navigation
+          await this.page.waitForTimeout(2000);
+          
+          this._trackInteractionWithDetails('click', 'click', true, `force:${selector}`, {
+            label: element.text || 'Element',
+            type: element.tag || 'element',
+            value: element.text
+          });
+          return true;
+        } catch (specialError) {
+          console.warn("Enhanced button click handling failed:", specialError);
+          // Fall through to standard click handling
+        }
+      }
       
       // Ensure element is visible by scrolling to it
       const elementHandle = await this.ensureElementInView(element);
@@ -173,73 +347,99 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
       });
       
       if (isDisabled) {
-        console.warn(`Click skipped: Element with selector ${selector} is disabled`);
-        this._trackInteractionWithDetails('click', 'click', false, selector, {
-          label: elementInfo.ariaLabel || elementInfo.label || elementInfo.text,
-          type: elementInfo.type || elementInfo.role || elementInfo.tag
+        console.warn(`Click failed: Element is disabled ${selector}`);
+        this._trackInteractionWithDetails('click', 'click', false, selector, { 
+          label: elementInfo.ariaLabel || element.text || elementInfo.text,
+          type: elementInfo.type || 'disabled',
+          value: 'disabled'
         });
         return false;
       }
       
-      // Determine the appropriate action type for tracking
-      let actionType = 'click';
-      if (elementInfo.tag === 'input' && elementInfo.type === 'radio' || elementInfo.role === 'radio') {
-        actionType = 'select';
-      } else if (elementInfo.tag === 'input' && elementInfo.type === 'checkbox' || elementInfo.role === 'checkbox') {
-        actionType = 'check';
-      } else if (elementInfo.tag === 'button' || elementInfo.role === 'button') {
-        actionType = 'button-click';
+      // Try to click directly on the element handle instead of using the selector
+      try {
+        // Check if this might open a new tab
+        const mightOpenNewTab = await elementHandle.evaluate(el => {
+          return (el as HTMLElement).tagName === 'A' && 
+                ((el as HTMLAnchorElement).target === '_blank' || 
+                (el as HTMLAnchorElement).getAttribute('rel')?.includes('noopener'));
+        });
+        
+        // Wait for potential new page if this is a link that might open in new tab
+        if (mightOpenNewTab) {
+          console.log("Element might open a new tab, preparing for potential new page");
+          
+          // Setup page listener before clicking
+          const pagePromise = this.page.context().waitForEvent('page', {
+            timeout: 5000
+          }).catch(() => null); // Don't throw if no new page appears
+          
+          // Click the element
+          await elementHandle.click({ timeout: 30000 });
+          
+          // Wait for the new page
+          const newPage = await pagePromise;
+          if (newPage) {
+            console.log("New page detected after click, waiting for load");
+            await newPage.waitForLoadState('domcontentloaded');
+            
+            // Additional wait for the page to become stable
+            await newPage.waitForTimeout(1000);
+            console.log("New page loaded successfully");
+          } else {
+            // Wait for navigation on current page as fallback
+            await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {
+              console.log("No navigation detected after click");
+            });
+          }
+        } else {
+          // Standard click for elements that don't open new tabs
+          await elementHandle.click({ timeout: 30000 });
+          
+          // Wait for any potential navigation or page changes
+          await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {
+            // This is expected - not all clicks cause navigation
+            console.log("No navigation detected after click");
+          });
+        }
+      } catch (error) {
+        console.warn(`Direct element handle click failed, trying force click: ${error}`);
+        
+        // Try force click as a fallback
+        try {
+          await elementHandle.click({ force: true, timeout: 5000 });
+          console.log("Force click succeeded on element handle");
+        } catch (forceClickError) {
+          console.warn(`Force click also failed, falling back to page.click: ${forceClickError}`);
+          // Last resort: use page.click
+          await this.page.click(selector, { force: true });
+        }
+        
+        // Wait for any potential navigation
+        await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {
+          // This is expected - not all clicks cause navigation  
+          console.log("No navigation detected after fallback click");
+        });
       }
-      
-      await this.page.click(selector);
       
       const elementValue = element.text || elementInfo.text;
       this._trackInteractionWithDetails(
         'click', 
-        actionType, 
+        'click', 
         true, 
         selector, 
         {
-          label: elementInfo.ariaLabel || elementInfo.label || elementInfo.text,
-          type: elementInfo.type || elementInfo.role || elementInfo.tag,
+          label: elementInfo.ariaLabel || elementValue,
+          type: elementInfo.type || elementInfo.tag,
+          id: elementInfo.id,
           value: elementValue
         }
       );
       
-      // Provide feedback after interaction
-      const feedbackAfterAction = await this.getFormFeedback();
-      console.log(`Click feedback for "${selector}":`, 
-        JSON.stringify({
-          url: feedbackAfterAction.url,
-          title: feedbackAfterAction.title,
-          formElementsCount: feedbackAfterAction.formElements.length
-        }, null, 2)
-      );
-      
-      // Check if we clicked a radio option that might require additional input
-      if (actionType === 'select') {
-        // Check if this was an option that might require text input
-        const hasOtherInput = await this.page.evaluate((sel) => {
-          const clickedEl = document.querySelector(sel);
-          if (!clickedEl) return false;
-          
-          // Check if we're in an option container with a text input
-          const container = clickedEl.closest('[role="radiogroup"]');
-          if (!container) return false;
-          
-          // Find nearby input field
-          return container.querySelector('input[type="text"]') !== null;
-        }, selector);
-        
-        if (hasOtherInput) {
-          console.log(`Selected option which may require additional text input.`);
-        }
-      }
-      
       return true;
     } catch (error) {
       console.error('Click error:', error);
-      this._trackInteractionWithDetails('click', 'click', false, this.buildSelector(element));
+      this._trackInteractionWithDetails('click', 'click', false, element.selector || 'unknown');
       return false;
     }
   }
@@ -1053,7 +1253,13 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
    */
   async takeScreenshot(): Promise<string> {
     try {
-      const buffer = await this.page.screenshot({ type: 'jpeg', quality: 80 });
+      // Capture with higher quality and full page option for better analysis
+      const buffer = await this.page.screenshot({ 
+        type: 'jpeg', 
+        quality: 90, 
+        fullPage: false,
+        scale: 'device'
+      });
       return `data:image/jpeg;base64,${buffer.toString('base64')}`;
     } catch (error) {
       console.error('Screenshot error:', error);

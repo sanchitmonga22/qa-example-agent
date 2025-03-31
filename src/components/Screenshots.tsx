@@ -108,6 +108,23 @@ export default function Screenshots({ steps, customSteps = [], className = "" }:
                 </div>
               )}
               
+              {step.llmFeedback && (
+                <div className={`mt-2 text-xs ${
+                  step.parsedLLMFeedback?.status === 'FAIL' 
+                    ? 'text-red-600' 
+                    : 'text-blue-600'
+                }`}>
+                  <strong>LLM Feedback:</strong> 
+                  {step.parsedLLMFeedback ? (
+                    <>
+                      <span className="font-semibold">{step.parsedLLMFeedback.status}</span>: {step.parsedLLMFeedback.reason}
+                    </>
+                  ) : (
+                    step.llmFeedback
+                  )}
+                </div>
+              )}
+              
               {step.error && (
                 <div className="p-3 bg-red-50 text-red-700 text-sm">
                   {step.error}

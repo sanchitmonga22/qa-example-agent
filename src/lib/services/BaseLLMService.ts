@@ -58,6 +58,24 @@ export abstract class BaseLLMService {
   }>;
 
   /**
+   * Validates the result of an action based on visual feedback
+   * @param pageState The current state of the page after the action
+   * @param instruction The original instruction
+   * @param previousAction The action that was just executed
+   * @param actionSuccess Whether the action was successfully executed
+   */
+  abstract validateActionResult(
+    pageState: PageState,
+    instruction: string,
+    previousAction: LLMDecision,
+    actionSuccess: boolean
+  ): Promise<{
+    isComplete: boolean;
+    isSuccess: boolean;
+    feedback: string;
+  }>;
+
+  /**
    * Utility method to build context from page state
    * @param pageState The current state of the page
    */
@@ -72,24 +90,13 @@ Timestamp: ${pageState.timestamp}
   }
 
   /**
-   * Utility method to format page elements for LLM prompt
-   * @param pageState The current state of the page
+   * Format elements list for the LLM prompt
+   * @param pageState The page state with elements to format
+   * @returns Formatted string representation of elements
    */
   protected formatElementsForPrompt(pageState: PageState): string {
-    return pageState.elements
-      .filter(el => el.visible)
-      .map((el, index) => {
-        return `
-Element ${index + 1}:
-  Tag: ${el.tag}
-  Type: ${el.type || 'N/A'}
-  ID: ${el.id || 'N/A'}
-  Classes: ${el.classes?.join(', ') || 'N/A'}
-  Text: ${el.text || 'N/A'}
-  Placeholder: ${el.placeholder || 'N/A'}
-  Position: x=${el.rect.x.toFixed(0)}, y=${el.rect.y.toFixed(0)}, width=${el.rect.width.toFixed(0)}, height=${el.rect.height.toFixed(0)}
-        `;
-      })
-      .join('\n');
+    return pageState.elements.slice(0, 20).map((element, index) => {
+      return `${index + 1}. <${element.tag}> ${element.text || ''}`;
+    }).join('\n');
   }
 } 

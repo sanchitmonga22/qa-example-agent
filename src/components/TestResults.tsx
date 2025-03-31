@@ -7,13 +7,14 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatDuration } from "@/lib/utils";
+import { useToast } from "@/components/ui/use-toast";
+import { formatDuration, parseLLMFeedback } from "@/lib/utils";
 import StatusIndicator from "@/components/StatusIndicator";
 import Screenshots from "@/components/Screenshots";
 import { TestWebsiteResponse, TestError, TestStep } from "@/lib/types";
-import { CheckCircle, FileDown, Download } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
-import { generateTestResultsPDF, getValidImageUrl, isValidScreenshot } from "@/lib/pdfUtils";
+import { CheckCircle, FileDown, Download, BarChart2 } from "lucide-react";
+import { generateTestResultsPDF, getValidImageUrl, isValidScreenshot, calculateTestMetrics } from "@/lib/pdfUtils";
+import { Progress } from "@/components/ui/progress";
 
 interface TestResultsProps {
   results: TestWebsiteResponse;
@@ -24,6 +25,9 @@ export default function TestResults({ results }: TestResultsProps) {
   const hasCustomSteps = results.customStepsResults && results.customStepsResults.length > 0;
   const reportRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  
+  // Calculate test metrics
+  const metrics = calculateTestMetrics(results);
 
   // Function to handle PDF export
   const exportAsPDF = async () => {
@@ -129,6 +133,55 @@ export default function TestResults({ results }: TestResultsProps) {
           </Card>
         </div>
         
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Test Metrics</CardTitle>
+              <BarChart2 className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <div className="text-2xl font-bold">{metrics.totalTests}</div>
+                <div className="text-xs text-muted-foreground">Total Tests</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-green-600">{metrics.passedTests}</div>
+                <div className="text-xs text-muted-foreground">Passed</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-red-600">{metrics.failedTests}</div>
+                <div className="text-xs text-muted-foreground">Failed</div>
+              </div>
+            </div>
+            
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs">
+                <span>Pass Rate</span>
+                <span>{metrics.passRate}%</span>
+              </div>
+              <Progress 
+                value={metrics.passRate} 
+                className={`h-2 ${
+                  metrics.passRate >= 80 
+                    ? "bg-green-100" 
+                    : metrics.passRate >= 50 
+                      ? "bg-yellow-100" 
+                      : "bg-red-100"
+                }`}
+                indicatorClassName={
+                  metrics.passRate >= 80 
+                    ? "bg-green-600" 
+                    : metrics.passRate >= 50 
+                      ? "bg-yellow-600" 
+                      : "bg-red-600"
+                }
+              />
+            </div>
+          </CardContent>
+        </Card>
+        
         <Tabs defaultValue="steps">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="steps">Test Steps</TabsTrigger>
@@ -149,7 +202,7 @@ export default function TestResults({ results }: TestResultsProps) {
                             <CardTitle className="text-base">{step.instruction}</CardTitle>
                           </div>
                           <StatusIndicator 
-                            status={step.success ? "success" : "failure"} 
+                            status={step.parsedLLMFeedback?.status === 'FAIL' ? 'failure' : 'success'} 
                           />
                         </div>
                       </CardHeader>
@@ -223,6 +276,32 @@ export default function TestResults({ results }: TestResultsProps) {
                             <AlertDescription className="text-xs whitespace-pre-wrap">{step.error}</AlertDescription>
                           </Alert>
                         )}
+
+                        {step.llmFeedback && (
+                          <div className={`mt-3 p-3 rounded-md ${
+                            step.parsedLLMFeedback?.status === 'FAIL' 
+                              ? 'bg-red-50' 
+                              : 'bg-blue-50'
+                          }`}>
+                            <h4 className={`text-sm font-semibold ${
+                              step.parsedLLMFeedback?.status === 'FAIL'
+                                ? 'text-red-700'
+                                : 'text-blue-700'
+                            }`}>LLM Feedback</h4>
+                            <div className={`space-y-1 ${
+                              step.parsedLLMFeedback?.status === 'FAIL'
+                                ? 'text-red-700'
+                                : 'text-blue-700'
+                            }`}>
+                              <p className="text-xs font-semibold">
+                                Status: {step.parsedLLMFeedback?.status || 'N/A'}
+                              </p>
+                              <p className="text-xs">
+                                {step.parsedLLMFeedback?.reason || step.llmFeedback}
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </CardContent>
                       {isValidScreenshot(step.screenshot) && (
                         <CardFooter className="p-0 border-t">
@@ -252,7 +331,13 @@ export default function TestResults({ results }: TestResultsProps) {
                               {step.name.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
                             </CardTitle>
                           </div>
-                          <StatusIndicator status={step.status} />
+                          <StatusIndicator status={
+                            step.parsedLLMFeedback?.status === 'FAIL' 
+                              ? 'failure' 
+                              : step.parsedLLMFeedback?.status === 'PASS'
+                                ? 'success'
+                                : step.status
+                          } />
                         </div>
                         <CardDescription>
                           Duration: {formatDuration(step.duration || 0)}
@@ -323,6 +408,32 @@ export default function TestResults({ results }: TestResultsProps) {
                             <AlertTitle>Error</AlertTitle>
                             <AlertDescription className="text-xs whitespace-pre-wrap">{step.error}</AlertDescription>
                           </Alert>
+                        )}
+
+                        {step.llmFeedback && (
+                          <div className={`mt-3 p-3 rounded-md ${
+                            step.parsedLLMFeedback?.status === 'FAIL' 
+                              ? 'bg-red-50' 
+                              : 'bg-blue-50'
+                          }`}>
+                            <h4 className={`text-sm font-semibold ${
+                              step.parsedLLMFeedback?.status === 'FAIL'
+                                ? 'text-red-700'
+                                : 'text-blue-700'
+                            }`}>LLM Feedback</h4>
+                            <div className={`space-y-1 ${
+                              step.parsedLLMFeedback?.status === 'FAIL'
+                                ? 'text-red-700'
+                                : 'text-blue-700'
+                            }`}>
+                              <p className="text-xs font-semibold">
+                                Status: {step.parsedLLMFeedback?.status || 'N/A'}
+                              </p>
+                              <p className="text-xs">
+                                {step.parsedLLMFeedback?.reason || step.llmFeedback}
+                              </p>
+                            </div>
+                          </div>
                         )}
                       </CardContent>
                       {isValidScreenshot(step.screenshot) && (

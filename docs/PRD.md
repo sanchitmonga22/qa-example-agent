@@ -3,7 +3,7 @@
 ## 1. Overview and Purpose
 
 ### Objective
-Build a web app that verifies whether new users can successfully schedule a demo meeting via a company's landing page. The tool will automatically test the "Book a Demo" flow and present results in an easy-to-understand dashboard. The system leverages AI-powered testing to adapt to various landing page designs and provide intelligent navigation decisions.
+Build a web app that verifies whether new users can successfully schedule a demo meeting via a company's landing page. The tool will automatically test the "Book a Demo" flow and present results in an easy-to-understand dashboard. The system leverages AI-powered testing, including visual analysis via OpenAI Vision API, to adapt to various landing page designs and provide intelligent navigation decisions.
 
 ### Target Users
 - Marketing and Sales teams looking to ensure their demo booking flows are working
@@ -18,7 +18,9 @@ Build a web app that verifies whether new users can successfully schedule a demo
 - **Scalability**: Allow multiple tests to be run concurrently, with clear error reporting and insights.
 - **Reliability**: Ensure the testing infrastructure is robust and can handle the resource requirements of browser automation.
 - **Adaptability**: Use AI to intelligently navigate through diverse landing page structures and booking flows.
+- **Visual Understanding**: Leverage visual AI to analyze page layouts and elements more accurately.
 - **Flexibility**: Allow users to define custom test steps in natural language for specialized testing scenarios.
+- **Comprehensive Reporting**: Generate detailed reports of test runs with visual evidence and exportable formats.
 
 ## 3. User Stories
 - As a **Marketing Manager**, I want to input my landing page URL and instantly see if the "Book a Demo" flow is working, so I can ensure a smooth user experience.
@@ -42,8 +44,9 @@ Build a web app that verifies whether new users can successfully schedule a demo
 - Show booking process results (success/failure).
 - List any errors or issues encountered during the test.
 - Provide screenshots or performance metrics from key steps.
-- Show AI decision-making process for each test step.
+- Show AI decision-making process for each test step, including visual reasoning.
 - Display user-defined custom steps and their execution results.
+- Provide access to comprehensive test reports in various formats.
 
 ### Backend (Next.js API Routes / Node.js)
 
@@ -61,15 +64,17 @@ Build a web app that verifies whether new users can successfully schedule a demo
 #### Page Navigation
 - Open the landing page URL in a headless browser.
 
-#### LLM-Guided Element Detection
+#### LLM-Guided Element Detection with Visual Analysis
 - Capture screenshot and DOM structure of the page.
-- Send this information to the LLM with appropriate context and instructions.
-- LLM analyzes the page and identifies the most likely "Book a Demo" element.
+- Process screenshot for optimal visual analysis.
+- Send this information to the OpenAI Vision API with appropriate context and instructions.
+- LLM analyzes the page visually and structurally to identify the most likely "Book a Demo" element.
+- Combine visual and DOM-based reasoning for more accurate element identification.
 
 #### User Simulation with LLM Guidance
-- LLM suggests which element to click for each step.
+- LLM suggests which element to click for each step, based on both visual and DOM analysis.
 - System clicks the suggested element and waits for page changes.
-- For form filling, LLM identifies form fields and suggests appropriate test data.
+- For form filling, LLM identifies form fields visually and suggests appropriate test data.
 - LLM guides the form submission process.
 
 #### Custom Test Step Execution
@@ -83,6 +88,14 @@ Build a web app that verifies whether new users can successfully schedule a demo
 - LLM analyzes the final page to determine if a confirmation/thank you message is present.
 - Record steps, timings, potential issues, and LLM decision-making process.
 - Generate comprehensive report including custom steps and their outcomes.
+
+#### Reporting System
+- Generate comprehensive test reports with step-by-step details.
+- Include visual evidence with optimized screenshots.
+- Provide LLM decision details with visual reasoning.
+- Support multiple export formats (PDF, JSON, CSV).
+- Implement report storage, retrieval, and sharing capabilities.
+- Create an interactive report viewing interface.
 
 ## 5. Non-Functional Requirements
 
@@ -129,8 +142,15 @@ Build a web app that verifies whether new users can successfully schedule a demo
 
 #### LLM Integration
 - **OpenAI API**: For intelligent page analysis and decision-making.
+- **OpenAI Vision API**: For visual analysis of web pages and elements.
 - **Custom LLM Service**: Abstraction layer for LLM interactions.
-- **Prompt Engineering**: Domain-specific prompts for web navigation and element identification.
+- **Prompt Engineering**: Domain-specific prompts for web navigation and visual element identification.
+
+#### Reporting System
+- **Report Generation Service**: For creating comprehensive test reports.
+- **Storage & Retrieval**: For managing report access and persistence.
+- **Export Utilities**: For supporting multiple export formats.
+- **Report Viewer UI**: For interactive report viewing and exploration.
 
 ### High-Level System Flow
 
@@ -143,21 +163,28 @@ Build a web app that verifies whether new users can successfully schedule a demo
 3. **Proxy to Testing Service**:
    - The API route forwards the request to the Railway-hosted Playwright service.
 
-4. **LLM-Guided Automated Testing**:
+4. **LLM-Guided Automated Testing with Visual Analysis**:
    - The Playwright service:
      - Navigates to the URL.
      - For each step (default or custom):
        - Captures screenshot and DOM structure.
-       - Sends to LLM with appropriate context.
-       - Receives action recommendation.
+       - Processes images for vision analysis.
+       - Sends to LLM and Vision API with appropriate context.
+       - Receives action recommendation with visual reasoning.
        - Executes the recommended action.
        - Verifies the outcome.
      - Returns the comprehensive test result.
 
-5. **Results Display**:
+5. **Report Generation**:
+   - Creates detailed test report with all collected information.
+   - Stores report for future access.
+   - Provides report access URL in response.
+
+6. **Results Display**:
    - The frontend receives and renders the results in a user-friendly format.
-   - Shows LLM decision-making process alongside test results.
+   - Shows LLM decision-making process with visual reasoning alongside test results.
    - Displays custom test steps and their outcomes.
+   - Provides access to the comprehensive report.
 
 ## 7. Implementation Plan
 
@@ -188,10 +215,17 @@ Build a web app that verifies whether new users can successfully schedule a demo
    - Set up authentication and API client.
    - Implement chat completion methods.
 
-3. **Develop Navigation Prompts**:
+3. **Implement Vision API Integration**:
+   - Set up image processing for screenshots.
+   - Create specialized vision prompts.
+   - Implement visual element recognition.
+   - Develop visual-DOM correlation utilities.
+
+4. **Develop Navigation Prompts**:
    - Create specialized prompts for web navigation tasks.
    - Design element identification prompt templates.
    - Implement prompt construction and context building.
+   - Integrate visual reasoning into prompts and responses.
 
 ### Step 4: Playwright Testing Service with LLM Integration
 1. **Enhance Existing Test Logic**:
@@ -208,7 +242,31 @@ Build a web app that verifies whether new users can successfully schedule a demo
    - Set up Docker deployment for Railway.app.
    - Configure environment for LLM API access.
 
-### Step 5: Testing & Validation
+### Step 5: Reporting System Implementation
+1. **Create Report Generation Service**:
+   - Develop comprehensive report structure.
+   - Implement metadata and summary formatting.
+   - Create step-by-step result formatter.
+   - Add visual evidence and LLM decision integration.
+   - Implement error reporting section.
+
+2. **Build Storage & Retrieval**:
+   - Set up report storage mechanism.
+   - Create retrieval API endpoints.
+   - Implement versioning support.
+
+3. **Implement Export Utilities**:
+   - Enhance PDF export functionality.
+   - Add JSON format support.
+   - Create CSV export for specific metrics.
+
+4. **Develop Report Viewer UI**:
+   - Create clean, organized layout.
+   - Add interactive elements for exploration.
+   - Implement filtering and search capabilities.
+   - Add sharing and access control features.
+
+### Step 6: Testing & Validation
 1. **Local Testing**:
    - Run local tests to validate LLM integration.
    - Test custom step functionality.
@@ -218,7 +276,7 @@ Build a web app that verifies whether new users can successfully schedule a demo
    - Gather feedback on custom step interface usability.
    - Validate LLM decision reporting for clarity.
 
-### Step 6: Deployment & Monitoring
+### Step 7: Deployment & Monitoring
 1. **Deployment**:
    - Deploy the Next.js app on Vercel.
    - Deploy the Playwright testing service on Railway.app.
@@ -273,7 +331,10 @@ Build a web app that verifies whether new users can successfully schedule a demo
 
 ### LLM Response Quality
 - **Risk**: LLM may suggest incorrect actions or misinterpret page elements.
-- **Mitigation**: Implement validation checks for LLM responses and fallback strategies.
+- **Mitigation**: 
+  - Implement validation checks for LLM responses and fallback strategies.
+  - Leverage Vision API to improve understanding of visual context.
+  - Combine DOM and visual analysis for more accurate decisions.
 
 ### Scalability Challenges
 - **Risk**: High test volumes could strain the API, testing service, and LLM API.
@@ -288,5 +349,5 @@ Build a web app that verifies whether new users can successfully schedule a demo
 - **Mitigation**: Implement usage monitoring and alerts for abnormal patterns.
 
 ## 10. Conclusion
-This PRD provides a comprehensive roadmap for building and hosting the AI-powered Landing Page Lead Funnel Validation Tool. By leveraging Next.js on Vercel for the frontend and API routes, combined with a dedicated Playwright testing service on Railway.app and OpenAI's LLM for intelligent navigation, the solution offers a reliable, scalable, and adaptive approach to automating booking flow validation. The addition of custom test steps and LLM-guided testing enables users to validate complex user journeys while maintaining ease of use.
+This PRD provides a comprehensive roadmap for building and hosting the AI-powered Landing Page Lead Funnel Validation Tool. By leveraging Next.js on Vercel for the frontend and API routes, combined with a dedicated Playwright testing service on Railway.app and OpenAI's API (including Vision capabilities) for intelligent navigation, the solution offers a reliable, scalable, and adaptive approach to automating booking flow validation. The addition of custom test steps, LLM-guided testing with visual analysis, and a comprehensive reporting system enables users to validate complex user journeys while maintaining ease of use and providing detailed insights into test processes and outcomes.
 

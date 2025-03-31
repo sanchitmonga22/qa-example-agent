@@ -12,13 +12,15 @@ A powerful web interaction testing tool designed to automatically navigate and v
 - Export comprehensive test reports as PDF
 - Define custom test steps in natural language
 - AI-guided testing with detailed decision reports
+- Visual page analysis with OpenAI Vision API
+- Comprehensive test reporting system with multiple export formats
 
 ## Tech Stack
 
 - **Frontend**: Next.js, React, TypeScript, TailwindCSS, ShadcnUI
 - **Backend**: Next.js API Routes
 - **Testing**: Playwright for browser automation
-- **AI Integration**: OpenAI API for intelligent page navigation
+- **AI Integration**: OpenAI API for intelligent page navigation, including Vision API for visual analysis
 - **Deployment**: Vercel (frontend) and Railway.app (Playwright service) - TBD
 
 ## Development Setup
@@ -69,8 +71,31 @@ To test user journeys on any website:
 2. Enter the URL of the website you want to test
 3. Add custom test steps using natural language instructions (e.g., "Click the login button", "Fill in the username field with 'test@example.com'", "Check if the dashboard loads successfully")
 4. Click "Run Test" to start the automated testing process
-5. View the results, including screenshots and LLM decisions
-6. Export the results as PDF if needed
+5. View the results, including screenshots and LLM decisions with visual reasoning
+6. Access detailed test reports with comprehensive information
+7. Export the results as PDF or other formats if needed
+
+## Key Features
+
+### OpenAI Vision API Integration
+
+The system leverages OpenAI's Vision API to analyze web pages visually, enabling more accurate element identification and interaction. This provides:
+
+- More human-like understanding of web page layouts
+- Better handling of visually complex interfaces
+- Improved accuracy in detecting and interacting with UI elements
+- Visual reasoning alongside DOM-based analysis
+
+### Comprehensive Test Reporting
+
+The reporting system offers:
+
+- Detailed test reports with step-by-step results
+- Visual evidence through optimized screenshots
+- LLM decision details with visual reasoning
+- Multiple export formats (PDF, JSON, CSV)
+- Report sharing and access control
+- Interactive report viewing interface
 
 ## Example Results
 

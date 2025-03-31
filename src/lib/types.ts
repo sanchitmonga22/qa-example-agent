@@ -1,7 +1,7 @@
 /**
  * API Request Types
  */
-export interface TestBookingFlowRequest {
+export interface TestWebsiteRequest {
   url: string;
   customSteps?: string[];
   options?: {
@@ -9,6 +9,9 @@ export interface TestBookingFlowRequest {
     screenshotCapture?: boolean;
   };
 }
+
+// Keeping old type for backwards compatibility
+export interface TestBookingFlowRequest extends TestWebsiteRequest {}
 
 /**
  * Test Step Data
@@ -34,16 +37,22 @@ export interface TestError {
 /**
  * API Response Types
  */
-export interface TestBookingFlowResponse {
+export interface TestWebsiteResponse {
   success: boolean;
   testId: string;
   url: string;
-  demoFlowFound: boolean;
-  bookingSuccessful: boolean;
+  primaryCTAFound: boolean;
+  interactionSuccessful: boolean;
   steps: TestStep[];
   totalDuration: number;
   errors: TestError[];
   customStepsResults?: CustomStepResult[];
+}
+
+// Keeping old type for backwards compatibility
+export interface TestBookingFlowResponse extends Omit<TestWebsiteResponse, 'primaryCTAFound' | 'interactionSuccessful'> {
+  demoFlowFound: boolean;
+  bookingSuccessful: boolean;
 }
 
 /**
@@ -53,7 +62,7 @@ export interface TestStatusResponse {
   testId: string;
   status: "pending" | "running" | "completed" | "failed";
   progress?: number;
-  result?: TestBookingFlowResponse;
+  result?: TestWebsiteResponse | TestBookingFlowResponse;
   error?: string;
 }
 
@@ -65,8 +74,10 @@ export interface TestHistoryItem {
   url: string;
   timestamp: string;
   success: boolean;
-  demoFlowFound: boolean;
-  bookingSuccessful: boolean;
+  primaryCTAFound?: boolean;
+  interactionSuccessful?: boolean;
+  demoFlowFound?: boolean;
+  bookingSuccessful?: boolean;
 }
 
 /**
@@ -97,10 +108,11 @@ export interface PageState {
   screenshot: string;
   elements: PageElement[];
   timestamp: string;
+  availableTabs?: string[]; // List of available tabs/pages
 }
 
 export interface LLMDecision {
-  action: 'click' | 'type' | 'select' | 'wait' | 'verify' | 'submit' | 'hover' | 'check' | 'press';
+  action: 'click' | 'type' | 'select' | 'wait' | 'verify' | 'submit' | 'hover' | 'check' | 'press' | 'switchTab';
   targetElement?: PageElement;
   value?: string;
   confidence: number;

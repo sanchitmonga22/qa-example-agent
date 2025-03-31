@@ -1,5 +1,5 @@
 import { chromium, Browser, Page, BrowserContext, ElementHandle } from 'playwright';
-import { CustomStepResult, LLMDecision, PageElement, PageState, TestBookingFlowRequest, TestBookingFlowResponse, TestError, TestStep } from '../types';
+import { CustomStepResult, LLMDecision, PageElement, PageState, TestWebsiteRequest, TestWebsiteResponse, TestError, TestStep } from '../types';
 import { generateTestId } from '../utils';
 import { TestDataGenerator } from './TestDataGenerator';
 import { BaseLLMService } from '../services/BaseLLMService';
@@ -7,10 +7,12 @@ import { OpenAIService } from '../services/OpenAIService';
 import { PlaywrightDOMInteractor } from '../interactions/PlaywrightDOMInteractor';
 import { InteractableElement } from '../interactions/BaseDOMInteractor';
 
-export class BookingFlowTest {
+export class WebSiteTest {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
   private page: Page | null = null;
+  private pages: Map<string, Page> = new Map(); // Track all pages/tabs
+  private activePage: Page | null = null; // Currently active page
   private domInteractor: PlaywrightDOMInteractor | null = null;
   private testId: string;
   private steps: TestStep[] = [];
@@ -24,7 +26,7 @@ export class BookingFlowTest {
   private llmService: BaseLLMService | null = null;
   private customStepsResults: CustomStepResult[] = [];
 
-  constructor(request: TestBookingFlowRequest) {
+  constructor(request: TestWebsiteRequest) {
     this.testId = generateTestId();
     this.url = request.url;
     
@@ -51,13 +53,48 @@ export class BookingFlowTest {
       this.browser = await chromium.launch({
         headless: true,
       });
+      
+      // Configure browser context to listen for new page events
       this.context = await this.browser.newContext({
         viewport: { width: 1280, height: 720 },
         userAgent: 'RevylBot/1.0 (+https://revyl.io/bot)'
       });
-      this.page = await this.context.newPage();
       
-      // Initialize DOM interactor
+      // Set up listener for new pages (tabs) being created
+      this.context.on('page', async (page) => {
+        // Store the new page with a unique identifier
+        const pageId = `page_${this.pages.size + 1}`;
+        this.pages.set(pageId, page);
+        this.activePage = page;
+        
+        // Set up domInteractor for the new active page
+        this.domInteractor = new PlaywrightDOMInteractor(page);
+        
+        // Handle page close events
+        page.on('close', () => {
+          // Remove the page from our collection
+          for (const [id, p] of this.pages.entries()) {
+            if (p === page) {
+              this.pages.delete(id);
+              break;
+            }
+          }
+          
+          // If this was the active page, switch to another page if available
+          if (this.activePage === page && this.pages.size > 0) {
+            const newActivePage = Array.from(this.pages.values())[0];
+            this.activePage = newActivePage;
+            this.domInteractor = new PlaywrightDOMInteractor(newActivePage);
+          }
+        });
+      });
+      
+      // Create initial page
+      this.page = await this.context.newPage();
+      this.pages.set('page_0', this.page);
+      this.activePage = this.page;
+      
+      // Initialize DOM interactor for the initial page
       this.domInteractor = new PlaywrightDOMInteractor(this.page);
     } catch (error) {
       this.addError('initialization', 'Failed to initialize browser', error);
@@ -66,25 +103,25 @@ export class BookingFlowTest {
   }
 
   /**
-   * Run the booking flow test
+   * Run the website test
    */
-  async runTest(url: string): Promise<TestBookingFlowResponse> {
+  async runTest(url: string): Promise<TestWebsiteResponse> {
     try {
       await this.initialize();
       
       // Step 1: Navigate to page
       await this.navigateToPage(url);
       
-      // Step 2: Find and click on "Book a Demo" element
-      const demoFlowFound = await this.findAndClickDemoFlow();
+      // Step 2: Find and click on primary CTA element
+      const ctaFound = await this.findAndClickPrimaryCTA();
       
       // Step 3: Fill out the form if found
-      let bookingSuccessful = false;
-      if (demoFlowFound) {
-        bookingSuccessful = await this.fillOutForm();
+      let formSubmitted = false;
+      if (ctaFound) {
+        formSubmitted = await this.fillOutForm();
       }
 
-      return this.generateResponse(demoFlowFound, bookingSuccessful);
+      return this.generateResponse(ctaFound, formSubmitted);
     } catch (error) {
       this.addError('test_execution', 'Test execution failed', error);
       return this.generateResponse(false, false);
@@ -96,7 +133,7 @@ export class BookingFlowTest {
   /**
    * Run test with custom steps guided by LLM
    */
-  async runTestWithCustomSteps(url: string, customSteps: string[]): Promise<TestBookingFlowResponse> {
+  async runTestWithCustomSteps(url: string, customSteps: string[]): Promise<TestWebsiteResponse> {
     try {
       await this.initialize();
       
@@ -124,16 +161,16 @@ export class BookingFlowTest {
       // Determine success based on custom steps execution
       const allStepsSucceeded = this.customStepsResults.every(step => step.success);
       
-      // Check if we found a demo element and completed booking in the custom steps
-      const demoFlowFound = this.customStepsResults.some(step => 
-        step.instruction.toLowerCase().includes('demo') || 
-        step.instruction.toLowerCase().includes('book'));
+      // Check if we found a CTA element and completed a form in the custom steps
+      const ctaFound = this.customStepsResults.some(step => 
+        step.instruction.toLowerCase().includes('click') || 
+        step.instruction.toLowerCase().includes('button'));
       
-      const bookingSuccessful = this.customStepsResults.some(step => 
+      const formSubmitted = this.customStepsResults.some(step => 
         step.instruction.toLowerCase().includes('submit') || 
         step.instruction.toLowerCase().includes('form'));
       
-      return this.generateResponseWithCustomSteps(demoFlowFound, bookingSuccessful);
+      return this.generateResponseWithCustomSteps(ctaFound, formSubmitted);
     } catch (error) {
       this.addError('custom_step_execution', 'Custom step execution failed', error);
       return this.generateResponseWithCustomSteps(false, false);
@@ -183,93 +220,113 @@ export class BookingFlowTest {
             throw new Error('DOM interactor not initialized');
           }
           
-          switch (decision.action) {
-            case 'click':
-              if (targetElement) {
-                actionSuccess = await this.domInteractor.click(targetElement);
-              } else {
-                actionError = 'No target element provided for click action';
-              }
-              break;
-              
-            case 'type':
-              if (targetElement && decision.value) {
-                actionSuccess = await this.domInteractor.fill(targetElement, decision.value);
-              } else {
-                actionError = 'Target element or value missing for type action';
-              }
-              break;
-              
-            case 'select':
-              if (targetElement && decision.value) {
-                actionSuccess = await this.domInteractor.select(targetElement, decision.value);
-              } else {
-                actionError = 'Target element or value missing for select action';
-              }
-              break;
-              
-            case 'submit':
-              if (targetElement) {
-                actionSuccess = await this.domInteractor.submitForm(targetElement);
-              } else {
-                actionSuccess = await this.domInteractor.submitForm();
-              }
-              break;
-              
-            case 'wait':
-              if (targetElement) {
-                actionSuccess = await this.domInteractor.waitForElement(targetElement);
-              } else {
-                // General wait
-                await this.page!.waitForTimeout(2000);
-                actionSuccess = true;
-              }
-              break;
-              
-            case 'verify':
-              if (targetElement) {
-                actionSuccess = await this.domInteractor.exists(targetElement);
-              } else {
-                actionError = 'No target element provided for verify action';
-              }
-              
-              // Special case: verify can be used to check if the step is complete
-              if (actionSuccess && decision.reasoning.toLowerCase().includes('complete') ||
-                  decision.reasoning.toLowerCase().includes('finish') ||
-                  decision.reasoning.toLowerCase().includes('success') ||
-                  decision.reasoning.toLowerCase().includes('done')) {
-                isStepComplete = true;
-                finalSuccess = true;
-              }
-              break;
-              
-            case 'hover':
-              if (targetElement) {
-                actionSuccess = await this.domInteractor.hover(targetElement);
-              } else {
-                actionError = 'No target element provided for hover action';
-              }
-              break;
-              
-            case 'check':
-              if (targetElement) {
-                const state = decision.value === 'false' ? false : true;
-                actionSuccess = await this.domInteractor.check(targetElement, state);
-              } else {
-                actionError = 'No target element provided for check action';
-              }
-              break;
-              
-            case 'press':
-              if (decision.value) {
-                actionSuccess = await this.domInteractor.pressKey(decision.value);
-              } else {
-                actionError = 'No key provided for press action';
-              }
-              break;
-              
-            default:
-              actionError = `Unsupported action: ${decision.action}`;
+          // Handle tab switching if needed
+          if (decision.action === 'switchTab' && decision.value) {
+            const tabId = decision.value;
+            if (this.pages.has(tabId)) {
+              this.activePage = this.pages.get(tabId)!;
+              this.domInteractor = new PlaywrightDOMInteractor(this.activePage);
+              actionSuccess = true;
+            } else {
+              actionError = `Tab with ID ${tabId} not found`;
+            }
+          } else {
+            switch (decision.action) {
+              case 'click':
+                if (targetElement) {
+                  actionSuccess = await this.domInteractor.click(targetElement);
+                  
+                  // After a click, check if a new page was created (might be a new tab)
+                  // New pages are automatically handled by the 'page' event on context
+                  // This case handles clicks that might navigate or open new tabs
+                  if (actionSuccess) {
+                    // Give time for a potential new tab to open
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                  }
+                } else {
+                  actionError = 'No target element provided for click action';
+                }
+                break;
+                
+              case 'type':
+                if (targetElement && decision.value) {
+                  actionSuccess = await this.domInteractor.fill(targetElement, decision.value);
+                } else {
+                  actionError = 'Target element or value missing for type action';
+                }
+                break;
+                
+              case 'select':
+                if (targetElement && decision.value) {
+                  actionSuccess = await this.domInteractor.select(targetElement, decision.value);
+                } else {
+                  actionError = 'Target element or value missing for select action';
+                }
+                break;
+                
+              case 'submit':
+                if (targetElement) {
+                  actionSuccess = await this.domInteractor.submitForm(targetElement);
+                } else {
+                  actionSuccess = await this.domInteractor.submitForm();
+                }
+                break;
+                
+              case 'wait':
+                if (targetElement) {
+                  actionSuccess = await this.domInteractor.waitForElement(targetElement);
+                } else {
+                  // General wait
+                  await this.activePage!.waitForTimeout(2000);
+                  actionSuccess = true;
+                }
+                break;
+                
+              case 'verify':
+                if (targetElement) {
+                  actionSuccess = await this.domInteractor.exists(targetElement);
+                } else {
+                  actionError = 'No target element provided for verify action';
+                }
+                
+                // Special case: verify can be used to check if the step is complete
+                if (actionSuccess && decision.reasoning.toLowerCase().includes('complete') ||
+                    decision.reasoning.toLowerCase().includes('finish') ||
+                    decision.reasoning.toLowerCase().includes('success') ||
+                    decision.reasoning.toLowerCase().includes('done')) {
+                  isStepComplete = true;
+                  finalSuccess = true;
+                }
+                break;
+                
+              case 'hover':
+                if (targetElement) {
+                  actionSuccess = await this.domInteractor.hover(targetElement);
+                } else {
+                  actionError = 'No target element provided for hover action';
+                }
+                break;
+                
+              case 'check':
+                if (targetElement) {
+                  const state = decision.value === 'false' ? false : true;
+                  actionSuccess = await this.domInteractor.check(targetElement, state);
+                } else {
+                  actionError = 'No target element provided for check action';
+                }
+                break;
+                
+              case 'press':
+                if (decision.value) {
+                  actionSuccess = await this.domInteractor.pressKey(decision.value);
+                } else {
+                  actionError = 'No key provided for press action';
+                }
+                break;
+                
+              default:
+                actionError = `Unsupported action: ${decision.action}`;
+            }
           }
           
           // Check if the LLM explicitly indicates the step is complete
@@ -413,7 +470,8 @@ export class BookingFlowTest {
       url: await this.domInteractor.getPageUrl(),
       screenshot,
       elements: pageElements,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      availableTabs: Array.from(this.pages.keys())
     };
   }
 
@@ -447,60 +505,67 @@ export class BookingFlowTest {
   }
 
   /**
-   * Find and click on demo flow element
+   * Find and click on primary CTA element
    */
-  private async findAndClickDemoFlow(): Promise<boolean> {
+  private async findAndClickPrimaryCTA(): Promise<boolean> {
     try {
-      this.addStep('find_demo_button', 'running');
+      this.addStep('find_cta_button', 'running');
       
       if (!this.domInteractor) {
         throw new Error('DOM interactor not initialized');
       }
       
-      // List of possible demo button texts
-      const demoTexts = [
+      // List of possible CTA button texts
+      const ctaTexts = [
         "Book a Demo",
         "Get a Demo",
         "Request Demo",
         "Schedule Demo",
         "Book Demo",
-        "Get Demo"
+        "Get Demo",
+        "Sign Up",
+        "Get Started",
+        "Try Now",
+        "Contact Us",
+        "Learn More"
       ];
       
       // Get all interactable elements
       const elements = await this.domInteractor.getInteractableElements();
       
-      // Find elements that might be demo buttons
-      const demoElements = elements.filter(el => {
+      // Find elements that might be CTA buttons
+      const ctaElements = elements.filter(el => {
         // Check text content
         if (el.text) {
-          return demoTexts.some(text => 
+          return ctaTexts.some(text => 
             el.text!.toLowerCase().includes(text.toLowerCase()));
         }
         
-        // Check for demo in href
+        // Check for CTA in href
         if (el.attributes?.href) {
           return el.attributes.href.toLowerCase().includes('demo') || 
                  el.attributes.href.toLowerCase().includes('book') ||
-                 el.attributes.href.toLowerCase().includes('schedule');
+                 el.attributes.href.toLowerCase().includes('signup') ||
+                 el.attributes.href.toLowerCase().includes('contact') ||
+                 el.attributes.href.toLowerCase().includes('register');
         }
         
         return false;
       });
       
-      if (demoElements.length === 0) {
-        this.updateStepStatus('find_demo_button', 'failure');
-        this.addError('find_demo_button', 'Could not find a demo button or link', 
-          'None of the elements on the page match demo button criteria.');
+      if (ctaElements.length === 0) {
+        this.updateStepStatus('find_cta_button', 'failure');
+        this.addError('find_cta_button', 'Could not find a CTA button or link', 
+          'None of the elements on the page match CTA button criteria.');
         return false;
       }
       
       // Click the first matching element
-      const success = await this.domInteractor.click(demoElements[0]);
+      const success = await this.domInteractor.click(ctaElements[0]);
       
       if (!success) {
-        this.updateStepStatus('find_demo_button', 'failure');
-        this.addError('find_demo_button', 'Failed to click demo button', 
+        this.updateStepStatus('find_cta_button', 'failure');
+        this.addError('find_cta_button', 'Failed to click CTA button', 
           'Element was found but could not be clicked.');
         return false;
       }
@@ -520,12 +585,12 @@ export class BookingFlowTest {
         // It's okay if neither happens, the button might reveal a form in-page
       }
       
-      await this.captureScreenshot('find_demo_button');
-      this.updateStepStatus('find_demo_button', 'success');
+      await this.captureScreenshot('find_cta_button');
+      this.updateStepStatus('find_cta_button', 'success');
       return true;
     } catch (error) {
-      this.updateStepStatus('find_demo_button', 'failure');
-      this.addError('find_demo_button', 'Error while finding or clicking demo button', error);
+      this.updateStepStatus('find_cta_button', 'failure');
+      this.addError('find_cta_button', 'Error while finding or clicking CTA button', error);
       return false;
     }
   }
@@ -719,7 +784,7 @@ export class BookingFlowTest {
   /**
    * Generate response with custom steps
    */
-  private generateResponseWithCustomSteps(demoFlowFound: boolean, bookingSuccessful: boolean): TestBookingFlowResponse {
+  private generateResponseWithCustomSteps(ctaFound: boolean, formSubmitted: boolean): TestWebsiteResponse {
     const endTime = Date.now();
     const totalDuration = endTime - this.startTime;
     
@@ -727,8 +792,8 @@ export class BookingFlowTest {
       success: this.customStepsResults.every(step => step.success),
       testId: this.testId,
       url: this.url,
-      demoFlowFound,
-      bookingSuccessful,
+      primaryCTAFound: ctaFound,
+      interactionSuccessful: formSubmitted,
       steps: this.steps,
       customStepsResults: this.customStepsResults,
       totalDuration,
@@ -739,15 +804,15 @@ export class BookingFlowTest {
   /**
    * Generate the test response
    */
-  private generateResponse(demoFlowFound: boolean, bookingSuccessful: boolean): TestBookingFlowResponse {
+  private generateResponse(ctaFound: boolean, formSubmitted: boolean): TestWebsiteResponse {
     const totalDuration = Date.now() - this.startTime;
     
     return {
-      success: demoFlowFound && bookingSuccessful,
+      success: ctaFound && formSubmitted,
       testId: this.testId,
       url: this.url,
-      demoFlowFound,
-      bookingSuccessful,
+      primaryCTAFound: ctaFound,
+      interactionSuccessful: formSubmitted,
       steps: this.steps,
       totalDuration,
       errors: this.errors
@@ -759,7 +824,9 @@ export class BookingFlowTest {
    */
   private async cleanup(): Promise<void> {
     try {
-      if (this.page) await this.page.close();
+      this.pages.clear();
+      this.activePage = null;
+      this.page = null;
       if (this.context) await this.context.close();
       if (this.browser) await this.browser.close();
     } catch (error) {

@@ -5,33 +5,32 @@ import { toast } from "sonner";
 import UrlInputForm from "@/components/UrlInputForm";
 import TestResults from "@/components/TestResults";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { TestBookingFlowResponse } from "@/lib/types";
+import { TestWebsiteResponse } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
-  const [testResults, setTestResults] = useState<TestBookingFlowResponse | null>(null);
+  const [testResults, setTestResults] = useState<TestWebsiteResponse | null>(null);
 
   const runTest = async (url: string, customSteps?: string[]) => {
     try {
       setIsLoading(true);
       setTestResults(null);
       
-      const requestBody: any = { 
-        url, 
-        options: { timeout: 60000, screenshotCapture: true }
-      };
-      
-      if (customSteps && customSteps.length > 0) {
-        requestBody.customSteps = customSteps;
+      // Check if URL is valid
+      try {
+        new URL(url);
+      } catch (e) {
+        throw new Error('Please enter a valid URL');
       }
       
-      const response = await fetch('/api/test-booking-flow', {
+      // Call the API to run the test
+      const response = await fetch('/api/test-website', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({ url, customSteps }),
       });
       
       if (!response.ok) {
@@ -39,9 +38,10 @@ export default function Home() {
         throw new Error(errorData.message || 'Failed to run test');
       }
       
-      const result: TestBookingFlowResponse = await response.json();
+      const result: TestWebsiteResponse = await response.json();
       setTestResults(result);
       
+      // Show toast based on result
       if (result.success) {
         toast.success("Test completed successfully!");
       } else {

@@ -1,4 +1,4 @@
-import { CustomStepResult, TestBookingFlowResponse, TestHistoryItem, TestStatusResponse } from '../types';
+import { CustomStepResult, TestWebsiteResponse, TestHistoryItem, TestStatusResponse } from '../types';
 
 /**
  * Service for managing test results
@@ -75,16 +75,17 @@ export class TestResultService {
     if (!testStatus.result) {
       testStatus.result = {
         testId,
+        url: '',
         success: false,
-        demoFlowFound: false,
-        bookingSuccessful: false,
+        primaryCTAFound: false,
+        interactionSuccessful: false,
         steps: [],
         totalDuration: 0,
-        errors: [],
-        customStepsResults: [customStepResult],
-        url: ''
+        errors: []
       };
-    } else if (testStatus.result.customStepsResults) {
+    }
+
+    if (testStatus.result.customStepsResults) {
       testStatus.result.customStepsResults.push(customStepResult);
     } else {
       testStatus.result.customStepsResults = [customStepResult];
@@ -97,7 +98,7 @@ export class TestResultService {
   /**
    * Complete a test with results
    */
-  public completeTest(result: TestBookingFlowResponse): TestStatusResponse {
+  public completeTest(result: TestWebsiteResponse): TestStatusResponse {
     const testStatus: TestStatusResponse = {
       testId: result.testId,
       status: 'completed',
@@ -110,11 +111,11 @@ export class TestResultService {
     // Create history item
     const historyItem: TestHistoryItem = {
       id: result.testId,
-      url: result.url || 'Unknown URL',
+      url: result.url,
       timestamp: new Date().toISOString(),
       success: result.success,
-      demoFlowFound: result.demoFlowFound,
-      bookingSuccessful: result.bookingSuccessful
+      primaryCTAFound: result.primaryCTAFound,
+      interactionSuccessful: result.interactionSuccessful
     };
 
     this.testHistories.set(result.testId, historyItem);

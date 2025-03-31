@@ -16,6 +16,26 @@ export default function Screenshots({ steps, customSteps = [], className = "" }:
     return null;
   }
 
+  // Helper function to sanitize and validate base64 data
+  const getValidImageUrl = (base64Data?: string): string => {
+    if (!base64Data || base64Data.trim() === '') {
+      return '';
+    }
+    
+    // Ensure the base64 data doesn't already have the data:image prefix
+    if (base64Data.startsWith('data:image/')) {
+      return base64Data;
+    }
+    
+    // Otherwise, add the proper prefix
+    return `data:image/png;base64,${base64Data.trim()}`;
+  };
+
+  // Helper to check if a screenshot is valid
+  const isValidScreenshot = (screenshot?: string): boolean => {
+    return !!screenshot && screenshot.trim() !== '';
+  };
+
   return (
     <div className={`space-y-6 ${className}`}>
       <h3 className="text-xl font-semibold">Test Steps</h3>
@@ -37,13 +57,12 @@ export default function Screenshots({ steps, customSteps = [], className = "" }:
               )}
             </CardHeader>
             <CardContent className="p-0">
-              {step.screenshot ? (
+              {isValidScreenshot(step.screenshot) ? (
                 <div className="relative aspect-video w-full overflow-hidden">
-                  <Image
-                    src={`data:image/png;base64,${step.screenshot}`}
+                  <img
+                    src={getValidImageUrl(step.screenshot)}
                     alt={`Screenshot of ${step.name}`}
-                    fill
-                    className="object-contain"
+                    className="object-contain w-full h-full"
                   />
                 </div>
               ) : (
@@ -75,13 +94,12 @@ export default function Screenshots({ steps, customSteps = [], className = "" }:
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              {step.screenshot ? (
+              {isValidScreenshot(step.screenshot) ? (
                 <div className="relative aspect-video w-full overflow-hidden">
-                  <Image
-                    src={`data:image/png;base64,${step.screenshot}`}
+                  <img
+                    src={getValidImageUrl(step.screenshot)}
                     alt={`Screenshot of custom step ${index + 1}`}
-                    fill
-                    className="object-contain"
+                    className="object-contain w-full h-full"
                   />
                 </div>
               ) : (

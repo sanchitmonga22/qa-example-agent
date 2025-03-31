@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { BookingFlowTest } from '@/lib/playwright/BookingFlowTest';
-import { TestBookingFlowRequest, TestBookingFlowResponse } from '@/lib/types';
+import { WebSiteTest } from '@/lib/playwright/WebSiteTest';
+import { TestWebsiteRequest, TestWebsiteResponse } from '@/lib/types';
 import { TestResultService } from '@/lib/services/TestResultService';
 import { z } from 'zod';
 
@@ -15,7 +15,7 @@ const requestSchema = z.object({
 });
 
 /**
- * API Route for testing booking flows
+ * API Route for testing website interactions
  */
 export async function POST(request: NextRequest) {
   try {
@@ -35,13 +35,13 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    const testRequest: TestBookingFlowRequest = validationResult.data;
+    const testRequest: TestWebsiteRequest = validationResult.data;
     
     // Run the test
-    const tester = new BookingFlowTest(testRequest);
+    const tester = new WebSiteTest(testRequest);
     
     // If custom steps are provided, use them in the test
-    const result: TestBookingFlowResponse = testRequest.customSteps && testRequest.customSteps.length > 0
+    const result: TestWebsiteResponse = testRequest.customSteps && testRequest.customSteps.length > 0
       ? await tester.runTestWithCustomSteps(testRequest.url, testRequest.customSteps)
       : await tester.runTest(testRequest.url);
     
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Error testing booking flow:', error);
+    console.error('Error testing website interaction:', error);
     
     return NextResponse.json(
       { 

@@ -273,11 +273,32 @@ export class BookingFlowTest {
   private buildSelectorFromElement(element: PageElement): string {
     if (element.id) {
       return `#${element.id}`;
+    } else if (element.text && element.text.trim()) {
+      // Use the text selector approach for elements with text content
+      return `:text("${element.text.trim().replace(/"/g, '\\"')}")`;
+    } else if (element.tag && element.tag === 'a' && element.href) {
+      // For links with href attribute
+      return `a[href="${element.href.replace(/"/g, '\\"')}"]`;
     } else if (element.classes && element.classes.length > 0) {
-      return `.${element.classes.join('.')}`;
-    } else {
-      return `${element.tag}`;
+      // Filter out Tailwind utility classes that cause selector issues
+      const safeClasses = element.classes.filter(cls => 
+        !cls.includes(':') && 
+        !cls.includes('.') && 
+        !cls.includes('/') &&
+        !cls.startsWith('hover:') &&
+        !cls.startsWith('focus:') &&
+        !cls.startsWith('active:') &&
+        !cls.startsWith('group-') &&
+        !cls.startsWith('dark:')
+      );
+      
+      if (safeClasses.length > 0) {
+        return `.${safeClasses[0]}`; // Just use the first safe class
+      }
     }
+    
+    // Fallback to tag selector
+    return element.tag || 'div';
   }
 
   /**

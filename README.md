@@ -19,7 +19,7 @@ A powerful web interaction testing tool designed to automatically navigate and v
 - **Backend**: Next.js API Routes
 - **Testing**: Playwright for browser automation
 - **AI Integration**: OpenAI API for intelligent page navigation
-- **Deployment**: Vercel (frontend) and Railway.app (Playwright service)
+- **Deployment**: Vercel (frontend) and Railway.app (Playwright service) - TBD
 
 ## Development Setup
 
@@ -108,7 +108,7 @@ The architecture document covers:
 
 MIT License
 
-Copyright (c) 2024 [Your Name or Organization]
+Copyright (c) 2024 Sanchit Monga
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

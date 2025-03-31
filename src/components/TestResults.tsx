@@ -41,23 +41,23 @@ export default function TestResults({ results }: TestResultsProps) {
           <div className="flex flex-col p-4 border rounded-lg">
             <div className="flex items-center gap-2 mb-2">
               <StatusIndicator status={results.demoFlowFound ? "success" : "failure"} />
-              <span className="font-medium">Demo Flow Detection</span>
+              <span className="font-medium">Element Detection</span>
             </div>
             <p className="text-sm text-muted-foreground">
               {results.demoFlowFound
-                ? "Successfully found the 'Book a Demo' element"
-                : "Could not find the 'Book a Demo' element"}
+                ? "Successfully found the primary interactive element"
+                : "Could not find the primary interactive element"}
             </p>
           </div>
           <div className="flex flex-col p-4 border rounded-lg">
             <div className="flex items-center gap-2 mb-2">
               <StatusIndicator status={results.bookingSuccessful ? "success" : "failure"} />
-              <span className="font-medium">Booking Process</span>
+              <span className="font-medium">Workflow Completion</span>
             </div>
             <p className="text-sm text-muted-foreground">
               {results.bookingSuccessful
-                ? "Successfully completed the booking process"
-                : "Could not complete the booking process"}
+                ? "Successfully completed the test workflow"
+                : "Could not complete the test workflow"}
             </p>
           </div>
         </div>

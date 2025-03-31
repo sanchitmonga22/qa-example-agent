@@ -6,8 +6,8 @@ import { Toaster } from "@/components/ui/sonner";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Booking Agent - Landing Page Lead Funnel Validation Tool",
-  description: "Automatically test and validate the 'Book a Demo' flow on company landing pages.",
+  title: "QA Test Agent - Web Interaction Testing Tool",
+  description: "Automatically test and validate user flows on websites with custom test steps.",
 };
 
 export default function RootLayout({
@@ -22,7 +22,7 @@ export default function RootLayout({
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between h-16">
               <div className="flex items-center">
-                <span className="font-bold text-xl text-gray-900">Booking Agent</span>
+                <span className="font-bold text-xl text-gray-900">QA Test Agent</span>
               </div>
               <nav className="flex items-center space-x-4">
                 <a href="/" className="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">

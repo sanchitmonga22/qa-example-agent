@@ -36,8 +36,10 @@ export default function UrlInputForm({ onSubmit, isLoading = false }: UrlInputFo
   // Pre-populate default test steps on component mount
   useEffect(() => {
     setCustomSteps([
-      "Click on the \"Contact us\" button",
-      "Fill out the contact us form with random information and submit"
+      "Click on the \"Book a Demo\" button",
+      "Select a date from the calendar",
+      "Select a time from the calendar",
+      "Fill out the contact form with random information(name: Sanchit Monga, email: sanchitmonga22@gmail.com, phone: 5858314795, company: PrependAI, job title: Founder) and submit"
     ]);
   }, []);
 
@@ -107,7 +109,7 @@ export default function UrlInputForm({ onSubmit, isLoading = false }: UrlInputFo
               <AccordionContent>
                 <div className="space-y-4">
                   <FormDescription>
-                    Edit, remove or add test steps to validate your booking or demo flow
+                    Edit, remove or add test steps to validate your website interactions
                   </FormDescription>
                   
                   {customSteps.length > 0 && (

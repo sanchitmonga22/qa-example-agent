@@ -100,11 +100,12 @@ export interface PageState {
 }
 
 export interface LLMDecision {
-  action: 'click' | 'type' | 'select' | 'wait' | 'submit' | 'verify';
+  action: 'click' | 'type' | 'select' | 'wait' | 'verify' | 'submit' | 'hover' | 'check' | 'press';
   targetElement?: PageElement;
   value?: string;
   confidence: number;
   reasoning: string;
+  explanation?: string;
 }
 
 export interface ElementSelection {

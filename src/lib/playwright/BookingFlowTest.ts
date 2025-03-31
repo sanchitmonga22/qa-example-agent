@@ -4,11 +4,14 @@ import { generateTestId } from '../utils';
 import { TestDataGenerator } from './TestDataGenerator';
 import { BaseLLMService } from '../services/BaseLLMService';
 import { OpenAIService } from '../services/OpenAIService';
+import { PlaywrightDOMInteractor } from '../interactions/PlaywrightDOMInteractor';
+import { InteractableElement } from '../interactions/BaseDOMInteractor';
 
 export class BookingFlowTest {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
   private page: Page | null = null;
+  private domInteractor: PlaywrightDOMInteractor | null = null;
   private testId: string;
   private steps: TestStep[] = [];
   private errors: TestError[] = [];
@@ -53,6 +56,9 @@ export class BookingFlowTest {
         userAgent: 'RevylBot/1.0 (+https://revyl.io/bot)'
       });
       this.page = await this.context.newPage();
+      
+      // Initialize DOM interactor
+      this.domInteractor = new PlaywrightDOMInteractor(this.page);
     } catch (error) {
       this.addError('initialization', 'Failed to initialize browser', error);
       throw error;
@@ -144,56 +150,97 @@ export class BookingFlowTest {
       // Extract page state for LLM context
       const pageState = await this.extractPageState();
       
-      // Parse the instruction with LLM
-      const parsedStep = await this.llmService!.parseTestStep(instruction);
-      
-      // Determine the action to take
+      // Determine the action to take using LLM
       const decision = await this.llmService!.determineNextAction(
         pageState,
         instruction
       );
       
-      // Execute the action based on LLM decision
+      // Convert PageElement to InteractableElement if needed
+      const targetElement = decision.targetElement ? this.convertToInteractableElement(decision.targetElement) : undefined;
+      
+      // Execute the action based on LLM decision using the DOM interactor
       let success = false;
       let error = undefined;
       
       try {
+        if (!this.domInteractor) {
+          throw new Error('DOM interactor not initialized');
+        }
+        
         switch (decision.action) {
           case 'click':
-            if (decision.targetElement) {
-              const selector = this.buildSelectorFromElement(decision.targetElement);
-              await this.page!.click(selector);
-              success = true;
+            if (targetElement) {
+              success = await this.domInteractor.click(targetElement);
+            } else {
+              error = 'No target element provided for click action';
             }
             break;
             
           case 'type':
-            if (decision.targetElement && decision.value) {
-              const selector = this.buildSelectorFromElement(decision.targetElement);
-              await this.page!.fill(selector, decision.value);
-              success = true;
+            if (targetElement && decision.value) {
+              success = await this.domInteractor.fill(targetElement, decision.value);
+            } else {
+              error = 'Target element or value missing for type action';
+            }
+            break;
+            
+          case 'select':
+            if (targetElement && decision.value) {
+              success = await this.domInteractor.select(targetElement, decision.value);
+            } else {
+              error = 'Target element or value missing for select action';
             }
             break;
             
           case 'submit':
-            await this.page!.evaluate(() => {
-              const form = document.querySelector('form');
-              if (form) form.submit();
-            });
-            success = true;
+            if (targetElement) {
+              success = await this.domInteractor.submitForm(targetElement);
+            } else {
+              success = await this.domInteractor.submitForm();
+            }
             break;
             
           case 'wait':
-            await this.page!.waitForTimeout(2000); // Default wait
-            success = true;
+            if (targetElement) {
+              success = await this.domInteractor.waitForElement(targetElement);
+            } else {
+              // General wait
+              await this.page!.waitForTimeout(2000);
+              success = true;
+            }
             break;
             
           case 'verify':
-            // Verification just checks if an element exists
-            if (decision.targetElement) {
-              const selector = this.buildSelectorFromElement(decision.targetElement);
-              const element = await this.page!.$(selector);
-              success = !!element;
+            if (targetElement) {
+              success = await this.domInteractor.exists(targetElement);
+            } else {
+              error = 'No target element provided for verify action';
+            }
+            break;
+            
+          case 'hover':
+            if (targetElement) {
+              success = await this.domInteractor.hover(targetElement);
+            } else {
+              error = 'No target element provided for hover action';
+            }
+            break;
+            
+          case 'check':
+            if (targetElement) {
+              const state = decision.value === 'false' ? false : true;
+              success = await this.domInteractor.check(targetElement, state);
+            } else {
+              error = 'No target element provided for check action';
+            }
+            break;
+            
+          case 'press':
+            if (decision.value) {
+              success = await this.domInteractor.pressKey(decision.value);
+            } else {
+              error = 'No key provided for press action';
             }
             break;
             
@@ -205,8 +252,8 @@ export class BookingFlowTest {
         success = false;
       }
       
-      // Capture screenshot for the step
-      const screenshot = await this.captureScreenshotBase64();
+      // Capture screenshot
+      const screenshot = await this.domInteractor?.takeScreenshot() || '';
       
       // Return the result
       return {
@@ -228,77 +275,58 @@ export class BookingFlowTest {
   }
   
   /**
-   * Extract page state for LLM context
+   * Convert PageElement to InteractableElement
    */
-  private async extractPageState(): Promise<PageState> {
-    const screenshot = await this.captureScreenshotBase64();
+  private convertToInteractableElement(element: PageElement): InteractableElement {
+    const attributes: Record<string, string | undefined> = {};
     
-    // Extract DOM elements for LLM context
-    const elements = await this.page!.evaluate(() => {
-      return Array.from(document.querySelectorAll('a, button, input, select, textarea, form, [role="button"]'))
-        .map((el, index) => {
-          const rect = el.getBoundingClientRect();
-          return {
-            tag: el.tagName.toLowerCase(),
-            type: (el as HTMLElement).getAttribute('type'),
-            id: el.id,
-            classes: Array.from(el.classList),
-            text: el.textContent?.trim(),
-            placeholder: (el as HTMLElement).getAttribute('placeholder'),
-            name: (el as HTMLElement).getAttribute('name'),
-            href: (el as HTMLElement).getAttribute('href'),
-            rect: {
-              x: rect.x,
-              y: rect.y,
-              width: rect.width,
-              height: rect.height
-            },
-            visible: rect.width > 0 && rect.height > 0 && window.getComputedStyle(el).display !== 'none'
-          };
-        });
-    });
+    if (element.type) attributes['type'] = element.type;
+    if (element.placeholder) attributes['placeholder'] = element.placeholder;
+    if (element.name) attributes['name'] = element.name;
+    if (element.href) attributes['href'] = element.href;
     
     return {
-      title: await this.page!.title(),
-      url: this.page!.url(),
-      screenshot,
-      elements: elements as PageElement[],
-      timestamp: new Date().toISOString()
+      tag: element.tag,
+      id: element.id,
+      classes: element.classes,
+      text: element.text,
+      attributes,
+      rect: element.rect
     };
   }
   
   /**
-   * Build a CSS selector from a page element
+   * Extract page state for LLM context
    */
-  private buildSelectorFromElement(element: PageElement): string {
-    if (element.id) {
-      return `#${element.id}`;
-    } else if (element.text && element.text.trim()) {
-      // Use the text selector approach for elements with text content
-      return `:text("${element.text.trim().replace(/"/g, '\\"')}")`;
-    } else if (element.tag && element.tag === 'a' && element.href) {
-      // For links with href attribute
-      return `a[href="${element.href.replace(/"/g, '\\"')}"]`;
-    } else if (element.classes && element.classes.length > 0) {
-      // Filter out Tailwind utility classes that cause selector issues
-      const safeClasses = element.classes.filter(cls => 
-        !cls.includes(':') && 
-        !cls.includes('.') && 
-        !cls.includes('/') &&
-        !cls.startsWith('hover:') &&
-        !cls.startsWith('focus:') &&
-        !cls.startsWith('active:') &&
-        !cls.startsWith('group-') &&
-        !cls.startsWith('dark:')
-      );
-      
-      if (safeClasses.length > 0) {
-        return `.${safeClasses[0]}`; // Just use the first safe class
-      }
+  private async extractPageState(): Promise<PageState> {
+    if (!this.domInteractor) {
+      throw new Error('DOM interactor not initialized');
     }
     
-    // Fallback to tag selector
-    return element.tag || 'div';
+    const screenshot = await this.domInteractor.takeScreenshot();
+    const interactableElements = await this.domInteractor.getInteractableElements();
+    
+    // Convert InteractableElement[] to PageElement[]
+    const pageElements = interactableElements.map(el => ({
+      tag: el.tag || '',
+      type: el.attributes?.type,
+      id: el.id,
+      classes: el.classes || [],
+      text: el.text || '',
+      placeholder: el.attributes?.placeholder,
+      name: el.attributes?.name,
+      href: el.attributes?.href,
+      rect: el.rect || { x: 0, y: 0, width: 0, height: 0 },
+      visible: true
+    }));
+    
+    return {
+      title: await this.domInteractor.getPageTitle(),
+      url: await this.domInteractor.getPageUrl(),
+      screenshot,
+      elements: pageElements,
+      timestamp: new Date().toISOString()
+    };
   }
 
   /**
@@ -307,10 +335,19 @@ export class BookingFlowTest {
   private async navigateToPage(url: string): Promise<void> {
     try {
       this.addStep('page_navigation', 'running');
-      await this.page!.goto(url, { 
+      
+      if (!this.domInteractor) {
+        throw new Error('DOM interactor not initialized');
+      }
+      
+      const success = await this.domInteractor.navigate(url, { 
         timeout: this.options.timeout,
         waitUntil: 'networkidle'
       });
+      
+      if (!success) {
+        throw new Error('Navigation failed');
+      }
       
       await this.captureScreenshot('page_navigation');
       this.updateStepStatus('page_navigation', 'success');
@@ -328,51 +365,74 @@ export class BookingFlowTest {
     try {
       this.addStep('find_demo_button', 'running');
       
-      // List of possible selectors for demo/booking buttons
-      const selectors = [
-        'a:has-text("Book a Demo")', 
-        'button:has-text("Book a Demo")',
-        'a:has-text("Get a Demo")',
-        'button:has-text("Get a Demo")',
-        'a:has-text("Request Demo")',
-        'button:has-text("Request Demo")',
-        'a:has-text("Schedule Demo")',
-        'button:has-text("Schedule Demo")',
-        '[href*="demo"]',
-        '[href*="book"]',
-        '[href*="schedule"]'
-      ];
-      
-      let element = null;
-      
-      // Try each selector
-      for (const selector of selectors) {
-        element = await this.page!.$(selector);
-        if (element) break;
+      if (!this.domInteractor) {
+        throw new Error('DOM interactor not initialized');
       }
       
-      if (!element) {
+      // List of possible demo button texts
+      const demoTexts = [
+        "Book a Demo",
+        "Get a Demo",
+        "Request Demo",
+        "Schedule Demo",
+        "Book Demo",
+        "Get Demo"
+      ];
+      
+      // Get all interactable elements
+      const elements = await this.domInteractor.getInteractableElements();
+      
+      // Find elements that might be demo buttons
+      const demoElements = elements.filter(el => {
+        // Check text content
+        if (el.text) {
+          return demoTexts.some(text => 
+            el.text!.toLowerCase().includes(text.toLowerCase()));
+        }
+        
+        // Check for demo in href
+        if (el.attributes?.href) {
+          return el.attributes.href.toLowerCase().includes('demo') || 
+                 el.attributes.href.toLowerCase().includes('book') ||
+                 el.attributes.href.toLowerCase().includes('schedule');
+        }
+        
+        return false;
+      });
+      
+      if (demoElements.length === 0) {
         this.updateStepStatus('find_demo_button', 'failure');
         this.addError('find_demo_button', 'Could not find a demo button or link', 
-          'None of the common demo button selectors matched elements on the page.');
+          'None of the elements on the page match demo button criteria.');
         return false;
       }
       
-      await this.captureScreenshot('find_demo_button');
+      // Click the first matching element
+      const success = await this.domInteractor.click(demoElements[0]);
       
-      // Click the element
-      await element.click();
+      if (!success) {
+        this.updateStepStatus('find_demo_button', 'failure');
+        this.addError('find_demo_button', 'Failed to click demo button', 
+          'Element was found but could not be clicked.');
+        return false;
+      }
       
-      // Wait for navigation or new content
+      // Wait for navigation or form to appear
       try {
-        await Promise.race([
-          this.page!.waitForNavigation({ timeout: this.options.timeout }),
-          this.page!.waitForSelector('form', { timeout: this.options.timeout })
-        ]);
+        // First try to wait for form
+        const formWait = await this.domInteractor.waitForElement({
+          tag: 'form'
+        }, { timeout: 5000 });
+        
+        if (!formWait) {
+          // If no form, wait for navigation
+          await this.domInteractor.waitForNavigation();
+        }
       } catch (error) {
         // It's okay if neither happens, the button might reveal a form in-page
       }
       
+      await this.captureScreenshot('find_demo_button');
       this.updateStepStatus('find_demo_button', 'success');
       return true;
     } catch (error) {
@@ -389,18 +449,43 @@ export class BookingFlowTest {
     try {
       this.addStep('fill_form', 'running');
       
+      if (!this.domInteractor) {
+        throw new Error('DOM interactor not initialized');
+      }
+      
       // Check if there's a form
-      const form = await this.page!.$('form');
-      if (!form) {
+      const formExists = await this.domInteractor.exists({ tag: 'form' });
+      if (!formExists) {
         this.updateStepStatus('fill_form', 'failure');
         this.addError('fill_form', 'Could not find a form', 'No form element was detected on the page.');
         return false;
       }
       
-      // Find input fields
-      const nameInputs = await this.page!.$$('input[type="text"][name*="name"], input[placeholder*="name"], input[aria-label*="name"]');
-      const emailInputs = await this.page!.$$('input[type="email"], input[name*="email"], input[placeholder*="email"]');
-      const companyInputs = await this.page!.$$('input[name*="company"], input[placeholder*="company"], input[aria-label*="company"]');
+      // Get all interactable elements
+      const elements = await this.domInteractor.getInteractableElements();
+      
+      // Filter for input fields
+      const nameInputs = elements.filter(el => 
+        el.tag === 'input' && 
+        (el.attributes?.type === 'text') && 
+        (el.attributes?.name?.toLowerCase().includes('name') || 
+         el.attributes?.placeholder?.toLowerCase().includes('name') ||
+         el.attributes?.['aria-label']?.toLowerCase().includes('name'))
+      );
+      
+      const emailInputs = elements.filter(el => 
+        el.tag === 'input' && 
+        (el.attributes?.type === 'email' || 
+         el.attributes?.name?.toLowerCase().includes('email') ||
+         el.attributes?.placeholder?.toLowerCase().includes('email'))
+      );
+      
+      const companyInputs = elements.filter(el => 
+        el.tag === 'input' && 
+        (el.attributes?.name?.toLowerCase().includes('company') || 
+         el.attributes?.placeholder?.toLowerCase().includes('company') ||
+         el.attributes?.['aria-label']?.toLowerCase().includes('company'))
+      );
       
       // Generate test data
       const name = TestDataGenerator.generateName();
@@ -410,27 +495,40 @@ export class BookingFlowTest {
       
       // Fill in the form fields
       if (nameInputs.length > 0) {
-        await nameInputs[0].fill(name);
+        await this.domInteractor.fill(nameInputs[0], name);
       }
       
       if (emailInputs.length > 0) {
-        await emailInputs[0].fill(email);
+        await this.domInteractor.fill(emailInputs[0], email);
       }
       
       if (companyInputs.length > 0) {
-        await companyInputs[0].fill(company);
+        await this.domInteractor.fill(companyInputs[0], company);
       }
       
       // Find and fill other common fields
-      const phoneInputs = await this.page!.$$('input[type="tel"], input[name*="phone"], input[placeholder*="phone"]');
+      const phoneInputs = elements.filter(el => 
+        el.tag === 'input' && 
+        (el.attributes?.type === 'tel' || 
+         el.attributes?.name?.toLowerCase().includes('phone') ||
+         el.attributes?.placeholder?.toLowerCase().includes('phone'))
+      );
+      
       if (phoneInputs.length > 0) {
-        await phoneInputs[0].fill(phone);
+        await this.domInteractor.fill(phoneInputs[0], phone);
       }
       
       // Look for job title fields
-      const titleInputs = await this.page!.$$('input[name*="title"], input[name*="position"], input[placeholder*="title"], input[placeholder*="position"]');
+      const titleInputs = elements.filter(el => 
+        el.tag === 'input' && 
+        (el.attributes?.name?.toLowerCase().includes('title') || 
+         el.attributes?.name?.toLowerCase().includes('position') ||
+         el.attributes?.placeholder?.toLowerCase().includes('title') ||
+         el.attributes?.placeholder?.toLowerCase().includes('position'))
+      );
+      
       if (titleInputs.length > 0) {
-        await titleInputs[0].fill(TestDataGenerator.generateJobTitle());
+        await this.domInteractor.fill(titleInputs[0], TestDataGenerator.generateJobTitle());
       }
       
       await this.captureScreenshot('fill_form');
@@ -439,41 +537,27 @@ export class BookingFlowTest {
       // Submit the form
       this.addStep('submit_form', 'running');
       
-      // Try different methods to submit the form
-      try {
-        // Method 1: Submit button
-        const submitButton = await this.page!.$('button[type="submit"], input[type="submit"], button:has-text("Submit"), button:has-text("Send")');
-        if (submitButton) {
-          await submitButton.click();
-        } else {
-          // Method 2: Form submit
-          await this.page!.evaluate(() => {
-            const forms = document.querySelectorAll('form');
-            if (forms.length > 0) {
-              forms[0].submit();
-            }
-          });
-        }
-        
-        // Wait for confirmation page or message
-        try {
-          await Promise.race([
-            this.page!.waitForNavigation({ timeout: this.options.timeout }),
-            this.page!.waitForSelector('.success, .thank-you, [data-success], h1:has-text("Thank You")', 
-              { timeout: this.options.timeout }),
-          ]);
-        } catch (error) {
-          // It's okay if neither happens
-        }
-        
-        await this.captureScreenshot('submit_form');
-        this.updateStepStatus('submit_form', 'success');
-        return true;
-      } catch (error) {
+      // Try to submit the form
+      const success = await this.domInteractor.submitForm();
+      
+      if (!success) {
         this.updateStepStatus('submit_form', 'failure');
-        this.addError('submit_form', 'Failed to submit the form', error);
+        this.addError('submit_form', 'Failed to submit the form', 'The form could not be submitted');
         return false;
       }
+      
+      // Wait for confirmation page or message
+      try {
+        await this.domInteractor.waitForElement({
+          selector: '.success, .thank-you, [data-success], h1:has-text("Thank You")'
+        }, { timeout: this.options.timeout });
+      } catch (error) {
+        // It's okay if this fails, not all forms have a success message
+      }
+      
+      await this.captureScreenshot('submit_form');
+      this.updateStepStatus('submit_form', 'success');
+      return true;
     } catch (error) {
       this.updateStepStatus('fill_form', 'failure');
       this.addError('fill_form', 'Error while filling out the form', error);
@@ -485,18 +569,15 @@ export class BookingFlowTest {
    * Capture a screenshot if enabled
    */
   private async captureScreenshot(stepName: string): Promise<void> {
-    if (!this.options.screenshotCapture || !this.page) return;
+    if (!this.options.screenshotCapture || !this.domInteractor) return;
     
     try {
-      const screenshot = await this.page.screenshot({ 
-        type: 'jpeg',
-        quality: 80
-      });
+      const screenshot = await this.domInteractor.takeScreenshot();
       
       // Find the step and add the screenshot
       const step = this.steps.find(s => s.name === stepName);
       if (step) {
-        step.screenshot = `data:image/jpeg;base64,${screenshot.toString('base64')}`;
+        step.screenshot = screenshot;
       }
     } catch (error) {
       // Just log the error and continue - screenshots are non-critical
@@ -545,23 +626,6 @@ export class BookingFlowTest {
       message,
       details
     });
-  }
-
-  /**
-   * Capture screenshot as base64
-   */
-  private async captureScreenshotBase64(): Promise<string> {
-    if (!this.options.screenshotCapture || !this.page) {
-      return '';
-    }
-    
-    try {
-      const buffer = await this.page.screenshot({ type: 'jpeg', quality: 80 });
-      return `data:image/jpeg;base64,${buffer.toString('base64')}`;
-    } catch (error) {
-      console.error('Error capturing screenshot:', error);
-      return '';
-    }
   }
 
   /**

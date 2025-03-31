@@ -24,11 +24,11 @@ The Landing Page Lead Funnel Validation Tool automatically tests and validates "
        │                            │                              │
        ▼                            ▼                              ▼
 ┌─────────────────┐         ┌────────────────────┐         ┌─────────────────────┐
-│  UI Components  │         │ Request Processing │         │ Browser Automation  │
-│  • URL Input    │         │ • Validation       │         │ • Page Navigation   │
-│  • Test Results │         │ • Error Handling   │         │ • Element Detection │
-│  • Screenshots  │         │ • Test Orchestration│        │ • Form Filling      │
-│                 │         │                    │         │ • LLM Guidance      │
+│  UI Components  │         │ Request Processing │         │ Testing Components  │
+│  • URL Input    │         │ • Validation       │         │ • DOM Interaction   │
+│  • Test Results │         │ • Error Handling   │         │ • LLM Guidance      │
+│  • Screenshots  │         │ • Test Orchestration│        │ • Browser Automation│
+│                 │         │                    │         │                     │
 └─────────────────┘         └────────────────────┘         └─────────────────────┘
 ```
 
@@ -94,9 +94,9 @@ Key components:
 │           ▼                    │                    │             │
 │  ┌────────────────┐            │                    │             │
 │  │                │            │                    │             │
-│  │  Browser       │────────────┘                    │             │
-│  │  Automation    │─────────────────────────────────┘             │
-│  │                │                                               │
+│  │  DOM           │                                 │             │
+│  │  Interaction   │─────────────────────────────────┘             │
+│  │  Layer         │                                               │
 │  └────────────────┘                                               │
 │                                                                  │
 └──────────────────────────────────────────────────────────────────┘
@@ -105,7 +105,7 @@ Key components:
 Key components:
 - **API Routes**: Handle requests and proxy to testing service
 - **Test Orchestration**: Controls the testing process flow
-- **Browser Automation**: Executes Playwright tests
+- **DOM Interaction Layer**: Provides generic interface for browser automation
 - **LLM Service**: AI guidance for test navigation
 - **Results Processor**: Formats and returns test results
 
@@ -136,13 +136,13 @@ Key components:
 └─────────────────┘
 ```
 
-## 6. LLM Integration
+## 6. LLM Integration and DOM Interaction
 
 ```
 ┌──────────────────────┐          ┌───────────────────────┐
 │                      │          │                       │
-│  Browser Automation  │◄────────►│  LLM Decision Engine  │
-│  (Playwright)        │          │  (OpenAI API)         │
+│  DOM Interaction     │◄────────►│  LLM Decision Engine  │
+│  Layer               │          │  (OpenAI API)         │
 │                      │          │                       │
 └──────────┬───────────┘          └───────────────────────┘
            │                                   ▲
@@ -156,11 +156,35 @@ Key components:
 └──────────────────────┘          └───────────────────────┘
 ```
 
+### DOM Interaction Layer
+
+The DOM Interaction Layer is a key architectural component that:
+
+1. **Provides a Technology-Agnostic Interface**
+   - Abstract `BaseDOMInteractor` class defines a common interface
+   - Concrete implementations (e.g., `PlaywrightDOMInteractor`) handle tool-specific details
+   - Allows swapping automation tools without changing test logic
+
+2. **Standardizes Element Interaction**
+   - Defines all common DOM operations (click, fill, select, etc.)
+   - Handles complex selector building and element discovery
+   - Implements smart fallback mechanisms for finding elements
+
+3. **Manages Error Handling**
+   - Provides consistent error handling across all DOM operations
+   - Captures and categorizes errors appropriately
+   - Returns structured errors for better diagnostics
+
+4. **Extracts Page State**
+   - Gets interactable elements from the page
+   - Captures screenshots
+   - Provides page metadata for LLM context
+
 The LLM integration enables intelligent navigation through:
-1. Extracting page state (DOM elements, screenshots)
+1. Extracting page state via the DOM Interaction Layer
 2. Sending this information to the LLM with appropriate context
 3. Receiving action recommendations (which elements to click, what data to enter)
-4. Executing those actions and capturing results
+4. Executing those actions through the DOM Interaction Layer and capturing results
 
 ## 7. API Specifications
 
@@ -225,6 +249,53 @@ This approach solves:
 - **Error Handling**: Graceful degradation and detailed logging
 - **Monitoring**: Performance metrics and error tracking
 
-## 10. Conclusion
+## 10. DOM Interaction Layer Details
 
-This architecture provides a scalable, reliable system for validating booking flows using AI-powered testing. The separation of concerns between the Next.js frontend/API and the Playwright testing service enables efficient resource utilization while maintaining a seamless user experience.
+### Structure
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     BaseDOMInteractor                       │
+│                                                             │
+│  • Abstract interface for all DOM operations                │
+│  • Defines standard methods for element interaction         │
+│  • Provides consistent return types and error patterns      │
+│                                                             │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            │ implements
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  PlaywrightDOMInteractor                    │
+│                                                             │
+│  • Concrete implementation using Playwright                 │
+│  • Handles selector building and element finding            │
+│  • Implements error handling and logging                    │
+│  • Extracts page state and element information              │
+│                                                             │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            │ uses
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     BookingFlowTest                         │
+│                                                             │
+│  • Orchestrates testing process                             │
+│  • Uses DOM Interactor for all browser interactions         │
+│  • Integrates with LLM for decision making                  │
+│  • Processes and returns test results                       │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Key Features
+
+- **Flexible Element Representation**: The `InteractableElement` interface provides multiple ways to identify elements (id, classes, text, attributes, etc.)
+- **Smart Selector Building**: Converts high-level element descriptions into effective selectors
+- **Comprehensive API**: Covers all common DOM operations needed for testing
+- **Error Resilience**: Each method returns a success indicator and handles errors appropriately
+- **Screenshot Integration**: Built-in methods for capturing visual state
+
+## 11. Conclusion
+
+This architecture provides a scalable, reliable system for validating booking flows using AI-powered testing. The separation of concerns between the Next.js frontend/API, the DOM Interaction Layer, and the LLM decision engine enables efficient resource utilization and a high degree of flexibility and maintainability.

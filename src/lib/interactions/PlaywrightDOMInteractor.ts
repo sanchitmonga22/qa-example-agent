@@ -211,7 +211,7 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
   }
 
   /**
-   * Select an option from a dropdown
+   * Select an option from a dropdown or radio group
    */
   async select(element: InteractableElement, value: string): Promise<boolean> {
     try {
@@ -224,8 +224,152 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
         return false;
       }
       
-      await this.page.selectOption(selector, value);
-      return true;
+      // Get element info to determine best strategy
+      const elementInfo = await elementHandle.evaluate(el => {
+        const tagName = (el as HTMLElement).tagName.toLowerCase();
+        const type = (el as HTMLElement).getAttribute('type')?.toLowerCase();
+        const role = (el as HTMLElement).getAttribute('role')?.toLowerCase();
+        const classes = Array.from((el as HTMLElement).classList || []);
+        
+        return {
+          tagName,
+          type,
+          role,
+          classes
+        };
+      });
+      
+      // For select elements, use selectOption
+      if (elementInfo.tagName === 'select') {
+        await this.page.selectOption(selector, value);
+        return true;
+      }
+      
+      // For input fields that need text entry
+      if (elementInfo.tagName === 'input' && (elementInfo.type === 'text' || !elementInfo.type)) {
+        // For text inputs, just fill the value
+        await this.page.fill(selector, value);
+        return true;
+      }
+      
+      // For radio buttons with the same name
+      if (elementInfo.tagName === 'input' && elementInfo.type === 'radio') {
+        // Get the name attribute
+        const radioName = await elementHandle.evaluate(el => (el as HTMLElement).getAttribute('name'));
+        
+        if (radioName) {
+          // Strategy 1: Try to find radio with matching value
+          const radioValueSelector = `input[type="radio"][name="${radioName}"][value="${value}"]`;
+          const radioByValue = await this.page.$(radioValueSelector);
+          
+          if (radioByValue) {
+            await radioByValue.click();
+            return true;
+          }
+          
+          // Strategy 2: Try to find radio with matching label text
+          const radioButtons = await this.page.$$(`input[type="radio"][name="${radioName}"]`);
+          for (const radio of radioButtons) {
+            const labelText = await radio.evaluate(el => {
+              // Check for label by for attribute
+              const id = (el as HTMLElement).id;
+              if (id) {
+                const label = document.querySelector(`label[for="${id}"]`);
+                if (label && label.textContent) return label.textContent.trim();
+              }
+              
+              // Check for parent label
+              let parent = el.parentElement;
+              while (parent) {
+                if (parent.tagName.toLowerCase() === 'label' && parent.textContent) {
+                  return parent.textContent.trim();
+                }
+                parent = parent.parentElement;
+              }
+              
+              // Check nearby sibling for label
+              const siblings = Array.from(el.parentElement?.children || []);
+              for (const sibling of siblings) {
+                if (sibling.tagName.toLowerCase() === 'label' && sibling.textContent) {
+                  return sibling.textContent.trim();
+                }
+              }
+              
+              return '';
+            });
+            
+            if (labelText.toLowerCase().includes(value.toLowerCase())) {
+              await radio.click();
+              return true;
+            }
+          }
+        }
+      }
+      
+      // For custom select/dropdown components
+      if (elementInfo.role === 'combobox' || elementInfo.role === 'listbox') {
+        // Click to open dropdown
+        await this.page.click(selector);
+        await this.page.waitForTimeout(300); // Wait for dropdown to appear
+        
+        // Try to find an option with the given text
+        const optionSelector = `[role="option"]:has-text("${value}"), li:has-text("${value}")`;
+        const option = await this.page.$(optionSelector);
+        
+        if (option) {
+          await option.click();
+          return true;
+        }
+      }
+      
+      // Generic approach for any form: try to find any radio button with matching label text
+      const allRadios = await this.page.$$('input[type="radio"]');
+      for (const radio of allRadios) {
+        // Get label text
+        const labelText = await radio.evaluate(el => {
+          const id = (el as HTMLElement).id;
+          if (id) {
+            const label = document.querySelector(`label[for="${id}"]`);
+            if (label) return label.textContent || '';
+          }
+          
+          // Check surrounding text
+          let parentEl = el.parentElement;
+          while (parentEl && parentEl.textContent) {
+            const textContent = parentEl.textContent.trim();
+            if (textContent.length > 0) {
+              return textContent;
+            }
+            parentEl = parentEl.parentElement;
+          }
+          
+          return '';
+        });
+        
+        if (labelText && labelText.trim().toLowerCase() === value.toLowerCase()) {
+          await radio.click();
+          return true;
+        }
+      }
+      
+      // Try a fallback approach with "Other" option and text input
+      const otherRadios = await this.page.$$('input[type="radio"][value="other"], input[type="radio"][value="Other"]');
+      
+      if (otherRadios.length > 0) {
+        // Click the "Other" radio button
+        await otherRadios[0].click();
+        await this.page.waitForTimeout(100);
+        
+        // Then find any nearby text input field
+        const otherInput = await this.page.$('input[type="text"]:near(input[type="radio"][value="other"], input[type="radio"][value="Other"])');
+        if (otherInput) {
+          await otherInput.fill(value);
+          return true;
+        }
+      }
+      
+      console.warn(`Select failed: Could not find a way to select "${value}" on element ${selector}`);
+      return false;
     } catch (error) {
       console.error('Select error:', error);
       return false;
@@ -233,7 +377,7 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
   }
 
   /**
-   * Check or uncheck a checkbox
+   * Check or uncheck a checkbox or select a radio button
    */
   async check(element: InteractableElement, state: boolean = true): Promise<boolean> {
     try {
@@ -246,12 +390,116 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
         return false;
       }
       
-      if (state) {
-        await this.page.check(selector);
-      } else {
-        await this.page.uncheck(selector);
+      // Verify element type to determine the best interaction approach
+      const elementInfo = await elementHandle.evaluate(el => {
+        const tagName = (el as HTMLElement).tagName.toLowerCase();
+        const type = (el as HTMLElement).getAttribute('type')?.toLowerCase();
+        const role = (el as HTMLElement).getAttribute('role')?.toLowerCase();
+        const ariaChecked = (el as HTMLElement).getAttribute('aria-checked');
+        
+        return {
+          tagName,
+          type,
+          role,
+          ariaChecked
+        };
+      });
+      
+      // For standard checkboxes and radio buttons
+      if (elementInfo.tagName === 'input' && (elementInfo.type === 'checkbox' || elementInfo.type === 'radio')) {
+        if (state) {
+          await this.page.check(selector);
+        } else if (elementInfo.type === 'checkbox') { // Only uncheck checkboxes, not radio buttons
+          await this.page.uncheck(selector);
+        }
+        return true;
       }
-      return true;
+      
+      // For ARIA checkbox/radio buttons
+      if (elementInfo.role === 'checkbox' || elementInfo.role === 'radio') {
+        const isCurrentlyChecked = elementInfo.ariaChecked === 'true';
+        if ((state && !isCurrentlyChecked) || (!state && isCurrentlyChecked)) {
+          await this.page.click(selector);
+        }
+        return true;
+      }
+      
+      // For div/span that wraps a checkbox or radio (common pattern)
+      if (['div', 'span', 'label'].includes(elementInfo.tagName)) {
+        // Try to find an actual checkbox/radio inside
+        const innerCheckable = await this.page.$(`${selector} input[type="checkbox"], ${selector} input[type="radio"]`);
+        if (innerCheckable) {
+          if (state) {
+            await innerCheckable.check();
+          } else {
+            const innerType = await innerCheckable.evaluate(el => (el as HTMLElement).getAttribute('type'));
+            if (innerType === 'checkbox') {
+              await innerCheckable.uncheck();
+            }
+          }
+          return true;
+        }
+        
+        // If no checkbox/radio inside, the element might be a custom control
+        // Try looking for a nearby radio button using spatial relationship
+        const nearbyCheckables = await this.page.$$('input[type="radio"], input[type="checkbox"]');
+        
+        if (nearbyCheckables.length > 0) {
+          // Get the bounding box of our target element
+          const elBBox = await elementHandle.boundingBox();
+          
+          if (elBBox) {
+            // Calculate the center point of our element
+            const elCenterX = elBBox.x + elBBox.width / 2;
+            const elCenterY = elBBox.y + elBBox.height / 2;
+            
+            // Find distances to each checkable element
+            const elementDistances = await Promise.all(
+              nearbyCheckables.map(async (el) => {
+                const bbox = await el.boundingBox();
+                if (!bbox) return { element: el, distance: Infinity };
+                
+                const itemCenterX = bbox.x + bbox.width / 2;
+                const itemCenterY = bbox.y + bbox.height / 2;
+                
+                // Calculate Euclidean distance
+                const distance = Math.sqrt(
+                  Math.pow(elCenterX - itemCenterX, 2) + 
+                  Math.pow(elCenterY - itemCenterY, 2)
+                );
+                
+                return { element: el, distance };
+              })
+            );
+            
+            // Sort by distance
+            elementDistances.sort((a, b) => a.distance - b.distance);
+            
+            // Click/check the closest element
+            if (elementDistances.length > 0 && elementDistances[0].distance < 100) { // 100px threshold
+              const closestElement = elementDistances[0].element;
+              const type = await closestElement.evaluate(el => (el as HTMLElement).getAttribute('type'));
+              
+              if (state) {
+                await closestElement.check();
+              } else if (type === 'checkbox') {
+                await closestElement.uncheck();
+              }
+              return true;
+            }
+          }
+        }
+      }
+      
+      // If all else fails, just try clicking the element
+      if (state) {
+        console.warn(`Element with selector ${selector} is not a standard checkbox or radio button. Attempting to click instead.`);
+        await this.page.click(selector);
+        return true;
+      }
+      
+      console.warn(`Check failed: Element with selector ${selector} is not a checkbox or radio button`);
+      return false;
     } catch (error) {
       console.error('Check/uncheck error:', error);
       return false;

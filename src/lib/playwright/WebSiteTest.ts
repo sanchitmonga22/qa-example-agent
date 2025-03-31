@@ -1,7 +1,6 @@
-import { chromium, Browser, Page, BrowserContext, ElementHandle } from 'playwright';
+import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import { CustomStepResult, LLMDecision, PageElement, PageState, TestWebsiteRequest, TestWebsiteResponse, TestError, TestStep } from '../types';
 import { generateTestId } from '../utils';
-import { TestDataGenerator } from './TestDataGenerator';
 import { BaseLLMService } from '../services/BaseLLMService';
 import { OpenAIService } from '../services/OpenAIService';
 import { PlaywrightDOMInteractor } from '../interactions/PlaywrightDOMInteractor';
@@ -119,7 +118,7 @@ export class WebSiteTest {
           this.customStepsResults.push(stepResult);
           
           // Stop execution if a step fails
-          if (!stepResult.success) {
+          if (!stepResult.isSuccess) {
             break;
           }
         }
@@ -130,16 +129,16 @@ export class WebSiteTest {
       }
       
       // Determine success based on custom steps execution
-      const allStepsSucceeded = this.customStepsResults.every(step => step.success);
+      const allStepsSucceeded = this.customStepsResults.every(step => step.isSuccess);
       
       // Check if we found a CTA element and completed a form in the custom steps
       const ctaFound = this.customStepsResults.some(step => 
-        step.instruction.toLowerCase().includes('click') || 
-        step.instruction.toLowerCase().includes('button'));
+        step.decision?.action.toLowerCase().includes('click') || 
+        step.decision?.action.toLowerCase().includes('button'));
       
       const formSubmitted = this.customStepsResults.some(step => 
-        step.instruction.toLowerCase().includes('submit') || 
-        step.instruction.toLowerCase().includes('form'));
+        step.decision?.action.toLowerCase().includes('submit') || 
+        step.decision?.action.toLowerCase().includes('form'));
       
       return this.generateResponseWithCustomSteps(ctaFound, formSubmitted);
     } catch (error) {
@@ -162,11 +161,32 @@ export class WebSiteTest {
       let finalError: string | undefined = undefined;
       let finalScreenshot = '';
       let finalDecision: LLMDecision | undefined = undefined;
+      let attempts = 0;
+      const MAX_ATTEMPTS = 5;
       
       // Continue executing actions until the LLM indicates the step is complete
-      while (!isStepComplete) {
+      while (!isStepComplete && attempts < MAX_ATTEMPTS) {
+        attempts++;
+        
         // Extract page state for LLM context
         const pageState = await this.extractPageState();
+        
+        // Take a screenshot for visual context
+        const currentScreenshot = await this.domInteractor!.takeScreenshot() || '';
+        
+        // Add visual context to the page state
+        pageState.visualContext = currentScreenshot;
+        
+        // Add previous action results to help LLM understand what worked/didn't work
+        if (previousActions.length > 0) {
+          const lastAction = previousActions[previousActions.length - 1];
+          pageState.lastActionResult = {
+            action: lastAction.action,
+            success: lastAction.success || false,
+            error: lastAction.error,
+            targetElementFound: lastAction.targetElementFound || false
+          };
+        }
         
         // Determine the action to take using LLM
         const decision = await this.llmService!.determineNextAction(
@@ -185,10 +205,31 @@ export class WebSiteTest {
         // Execute the action based on LLM decision using the DOM interactor
         let actionSuccess = false;
         let actionError = undefined;
+        let targetElementFound = false;
         
         try {
           if (!this.domInteractor) {
             throw new Error('DOM interactor not initialized');
+          }
+          
+          // Check if the target element exists before attempting interaction
+          if (targetElement && decision.action !== 'verify') {
+            targetElementFound = await this.domInteractor.exists(targetElement);
+            if (!targetElementFound) {
+              actionError = `Target element not found on page for action: ${decision.action}`;
+              
+              // If element not found, add more page context that might help the LLM
+              const visibleElements = await this.domInteractor.getInteractableElements();
+              pageState.visibleElements = visibleElements.slice(0, 10); // Limit to 10 elements to avoid overflow
+              
+              // Update decision with failure information
+              decision.success = false;
+              decision.error = actionError;
+              decision.targetElementFound = false;
+              
+              // Continue to next attempt
+              continue;
+            }
           }
           
           // Handle tab switching if needed
@@ -300,6 +341,11 @@ export class WebSiteTest {
             }
           }
           
+          // Update the decision with success/failure info
+          decision.success = actionSuccess;
+          decision.error = actionError;
+          decision.targetElementFound = targetElementFound;
+          
           // Check if the LLM explicitly indicates the step is complete
           if (decision.isComplete) {
             isStepComplete = true;
@@ -318,28 +364,33 @@ export class WebSiteTest {
             finalSuccess = actionSuccess;
           }
           
-          // If the action failed, mark step as complete but failed
+          // If the action failed, capture a screenshot for visual context
           if (!actionSuccess) {
             finalError = actionError;
+            finalScreenshot = await this.domInteractor.takeScreenshot() || '';
+            
+            // Add the failure screenshot to the decision for LLM context
+            decision.failureScreenshot = finalScreenshot;
+            
             // If action failed multiple times with the same target, consider the step failed and exit
             const similarFailedActions = previousActions.filter(a => 
               !a.targetElement ? false : 
               a.targetElement.id === decision.targetElement?.id && 
               a.action === decision.action && 
-              !actionSuccess
+              !a.success
             );
             
             if (similarFailedActions.length >= 2) {
               isStepComplete = true;
               finalSuccess = false;
             }
-          }
-          
-          // If we've tried too many actions, consider the step failed
-          if (previousActions.length >= 10) {
-            isStepComplete = true;
-            finalSuccess = false;
-            finalError = finalError || 'Too many actions attempted without completing the step';
+          } else {
+            // Wait a moment for any DOM changes to complete
+            await this.activePage!.waitForTimeout(500);
+            
+            // Take a screenshot of successful action for context
+            finalScreenshot = await this.domInteractor.takeScreenshot() || '';
+            decision.successScreenshot = finalScreenshot;
           }
           
           // Capture screenshot
@@ -347,45 +398,30 @@ export class WebSiteTest {
           
         } catch (e) {
           actionError = e instanceof Error ? e.message : String(e);
-          actionSuccess = false;
+          decision.success = false;
+          decision.error = actionError;
           
-          // If exception occurred, still add to previous actions to inform LLM
-          previousActions[previousActions.length - 1] = {
-            ...previousActions[previousActions.length - 1],
-            reasoning: `${previousActions[previousActions.length - 1].reasoning} (Error: ${actionError})`
-          };
-          
-          // If we've had multiple consecutive errors, exit the loop
-          const consecutiveErrors = previousActions.slice(-3).every(a => 
-            a.reasoning.includes('Error:')
-          );
-          
-          if (consecutiveErrors) {
-            isStepComplete = true;
-            finalSuccess = false;
-            finalError = actionError;
-          }
+          // Take a screenshot of the error state
+          finalScreenshot = await this.domInteractor?.takeScreenshot() || '';
+          decision.failureScreenshot = finalScreenshot;
         }
-        
-        // Add a short delay between actions to avoid overwhelming the page
-        await new Promise(resolve => setTimeout(resolve, 500));
       }
       
-      // Return the final result
       return {
-        instruction,
-        success: finalSuccess,
+        isComplete: isStepComplete,
+        isSuccess: finalSuccess,
         error: finalError,
         screenshot: finalScreenshot,
-        llmDecision: finalDecision,
-        status: finalSuccess ? "success" : "failure"
+        decision: finalDecision
       };
     } catch (error) {
+      console.error(`Error executing step: ${instruction}`, error);
       return {
-        instruction,
-        success: false,
+        isComplete: true,
+        isSuccess: false,
         error: error instanceof Error ? error.message : String(error),
-        status: "failure"
+        screenshot: '',
+        decision: undefined
       };
     }
   }
@@ -546,31 +582,13 @@ export class WebSiteTest {
     const totalDuration = endTime - this.startTime;
     
     return {
-      success: this.customStepsResults.every(step => step.success),
+      success: this.customStepsResults.every(step => step.isSuccess),
       testId: this.testId,
       url: this.url,
       primaryCTAFound: ctaFound,
       interactionSuccessful: formSubmitted,
       steps: this.steps,
       customStepsResults: this.customStepsResults,
-      totalDuration,
-      errors: this.errors
-    };
-  }
-
-  /**
-   * Generate the test response
-   */
-  private generateResponse(ctaFound: boolean, formSubmitted: boolean): TestWebsiteResponse {
-    const totalDuration = Date.now() - this.startTime;
-    
-    return {
-      success: ctaFound && formSubmitted,
-      testId: this.testId,
-      url: this.url,
-      primaryCTAFound: ctaFound,
-      interactionSuccessful: formSubmitted,
-      steps: this.steps,
       totalDuration,
       errors: this.errors
     };
@@ -590,4 +608,4 @@ export class WebSiteTest {
       console.error('Error during cleanup:', error);
     }
   }
-} 
+}

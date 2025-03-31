@@ -1,6 +1,8 @@
 /**
  * API Request Types
  */
+import { InteractableElement } from './interactions/BaseDOMInteractor';
+
 export interface TestWebsiteRequest {
   url: string;
   customSteps?: string[];
@@ -109,6 +111,14 @@ export interface PageState {
   elements: PageElement[];
   timestamp: string;
   availableTabs?: string[]; // List of available tabs/pages
+  visualContext?: string; // Base64 encoded screenshot for visual context
+  lastActionResult?: {
+    action: string;
+    success: boolean;
+    error?: string;
+    targetElementFound: boolean;
+  };
+  visibleElements?: InteractableElement[]; // Additional context for element selection
 }
 
 export interface LLMDecision {
@@ -119,6 +129,11 @@ export interface LLMDecision {
   reasoning: string;
   explanation?: string;
   isComplete?: boolean;
+  success?: boolean;
+  error?: string;
+  targetElementFound?: boolean;
+  failureScreenshot?: string;
+  successScreenshot?: string;
 }
 
 export interface ElementSelection {
@@ -134,10 +149,11 @@ export interface FormFieldIdentification {
 }
 
 export interface CustomStepResult {
-  instruction: string;
-  success: boolean;
+  instruction?: string;
+  isComplete: boolean;
+  isSuccess: boolean;
   screenshot?: string;
-  llmDecision?: LLMDecision;
+  decision?: LLMDecision;
   error?: string;
   status?: "success" | "failure" | "running";
 } 

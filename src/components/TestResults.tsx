@@ -63,11 +63,8 @@ export default function TestResults({ results }: TestResultsProps) {
         </div>
 
         <Tabs defaultValue="steps">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="steps">Test Steps</TabsTrigger>
-            <TabsTrigger value="custom-steps" disabled={!results.customStepsResults || results.customStepsResults.length === 0}>
-              Custom Steps
-            </TabsTrigger>
             <TabsTrigger value="screenshots">Screenshots</TabsTrigger>
           </TabsList>
           
@@ -75,75 +72,70 @@ export default function TestResults({ results }: TestResultsProps) {
             {results.steps.map((step, index) => (
               <StepCard key={index} step={step} index={index} />
             ))}
-          </TabsContent>
-
-          <TabsContent value="custom-steps" className="space-y-4 mt-4">
-            {results.customStepsResults && results.customStepsResults.length > 0 ? (
-              results.customStepsResults.map((step, index) => (
-                <Card key={index} className="overflow-hidden">
-                  <CardHeader className="py-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <StatusIndicator 
-                        status={step.status || (step.success ? "success" : "failure")} 
-                        size="sm" 
-                      />
-                      <span>Step {index + 1}: {step.instruction}</span>
-                    </CardTitle>
-                  </CardHeader>
-                  {step.llmDecision && (
-                    <CardContent className="pb-0 pt-0">
-                      <Accordion type="single" collapsible className="w-full">
-                        <AccordionItem value="llm-decision">
-                          <AccordionTrigger className="text-sm py-2">
-                            LLM Decision Details
-                          </AccordionTrigger>
-                          <AccordionContent>
-                            <div className="space-y-2 text-sm">
-                              <div className="grid grid-cols-2 gap-2">
-                                <div className="font-semibold">Action:</div>
-                                <div>{step.llmDecision.action}</div>
-                                <div className="font-semibold">Confidence:</div>
-                                <div>{step.llmDecision.confidence}%</div>
+            
+            {results.customStepsResults && results.customStepsResults.length > 0 && (
+              <>
+                {results.customStepsResults.map((step, index) => (
+                  <Card key={`custom-${index}`} className="overflow-hidden">
+                    <CardHeader className="py-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <StatusIndicator 
+                          status={step.status || (step.success ? "success" : "failure")} 
+                          size="sm" 
+                        />
+                        <span>Step {results.steps.length + index + 1}: {step.instruction}</span>
+                      </CardTitle>
+                    </CardHeader>
+                    {step.llmDecision && (
+                      <CardContent className="pb-0 pt-0">
+                        <Accordion type="single" collapsible className="w-full">
+                          <AccordionItem value="llm-decision">
+                            <AccordionTrigger className="text-sm py-2">
+                              LLM Decision Details
+                            </AccordionTrigger>
+                            <AccordionContent>
+                              <div className="space-y-2 text-sm">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="font-semibold">Action:</div>
+                                  <div>{step.llmDecision.action}</div>
+                                  <div className="font-semibold">Confidence:</div>
+                                  <div>{step.llmDecision.confidence}%</div>
+                                </div>
+                                <div className="pt-2">
+                                  <div className="font-semibold">Reasoning:</div>
+                                  <div className="mt-1 text-muted-foreground">{step.llmDecision.reasoning}</div>
+                                </div>
                               </div>
-                              <div className="pt-2">
-                                <div className="font-semibold">Reasoning:</div>
-                                <div className="mt-1 text-muted-foreground">{step.llmDecision.reasoning}</div>
-                              </div>
-                            </div>
-                          </AccordionContent>
-                        </AccordionItem>
-                      </Accordion>
-                    </CardContent>
-                  )}
-                  {step.error && (
-                    <CardContent className="pb-4">
-                      <div className="bg-destructive/10 p-2 rounded text-sm text-destructive">
-                        <div className="font-semibold">Error:</div>
-                        <div>{step.error}</div>
-                      </div>
-                    </CardContent>
-                  )}
-                  {step.screenshot && (
-                    <CardFooter className="p-0">
-                      <img 
-                        src={step.screenshot} 
-                        alt={`Screenshot for step ${index + 1}`} 
-                        className="w-full object-contain max-h-64"
-                      />
-                    </CardFooter>
-                  )}
-                </Card>
-              ))
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <Info className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                <p>No custom steps were executed in this test</p>
-              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+                        </Accordion>
+                      </CardContent>
+                    )}
+                    {step.error && (
+                      <CardContent className="pb-4">
+                        <div className="bg-destructive/10 p-2 rounded text-sm text-destructive">
+                          <div className="font-semibold">Error:</div>
+                          <div>{step.error}</div>
+                        </div>
+                      </CardContent>
+                    )}
+                    {step.screenshot && (
+                      <CardFooter className="p-0">
+                        <img 
+                          src={step.screenshot} 
+                          alt={`Screenshot for step ${results.steps.length + index + 1}`} 
+                          className="w-full object-contain max-h-64"
+                        />
+                      </CardFooter>
+                    )}
+                  </Card>
+                ))}
+              </>
             )}
           </TabsContent>
-          
+
           <TabsContent value="screenshots" className="mt-4">
-            <Screenshots steps={results.steps} />
+            <Screenshots steps={results.steps} customSteps={results.customStepsResults} />
           </TabsContent>
         </Tabs>
 

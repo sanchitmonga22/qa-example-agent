@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -32,6 +32,14 @@ export default function UrlInputForm({ onSubmit, isLoading = false }: UrlInputFo
   const [error, setError] = useState<string | null>(null);
   const [customSteps, setCustomSteps] = useState<string[]>([]);
   const [currentStep, setCurrentStep] = useState<string>("");
+
+  // Pre-populate default test steps on component mount
+  useEffect(() => {
+    setCustomSteps([
+      "Click on the \"Contact us\" button",
+      "Fill out the contact us form with random information and submit"
+    ]);
+  }, []);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -95,11 +103,11 @@ export default function UrlInputForm({ onSubmit, isLoading = false }: UrlInputFo
 
           <Accordion type="single" collapsible className="w-full">
             <AccordionItem value="custom-steps">
-              <AccordionTrigger>Custom Test Steps (Optional)</AccordionTrigger>
+              <AccordionTrigger>Test Steps</AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-4">
                   <FormDescription>
-                    Add custom test steps in natural language (e.g., "Click the Contact Us button")
+                    Edit, remove or add test steps to validate your booking or demo flow
                   </FormDescription>
                   
                   {customSteps.length > 0 && (
@@ -163,7 +171,7 @@ export default function UrlInputForm({ onSubmit, isLoading = false }: UrlInputFo
           )}
 
           <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? "Testing..." : "Test Booking Flow"}
+            {isLoading ? "Testing..." : "Run Test"}
           </Button>
         </form>
       </Form>

@@ -1,14 +1,98 @@
-# Landing Page Lead Funnel Validation Tool - Architecture
+# QA Test Agent - Architecture
 
 ## 1. System Overview
 
-The Landing Page Lead Funnel Validation Tool automatically tests and validates "Book a Demo" flows on company landing pages using AI-powered testing. The system consists of three main components:
+The QA Test Agent is a powerful web interaction testing tool that automatically navigates and validates user journeys on any website using AI-powered testing. The system consists of three main components:
 
-1. **Next.js Frontend**: User interface for entering URLs and viewing test results
+1. **Next.js Frontend**: User interface for entering URLs, defining test steps, and viewing test results
 2. **Next.js API Routes**: Handles requests and orchestrates testing
 3. **Playwright Testing Service**: Executes browser automation with LLM guidance
 
-## 2. High-Level Architecture
+## 2. Interaction Flow Sequence
+
+The following sequence diagram illustrates the high-level flow of test execution, including the LLM feedback loop:
+
+```
+┌─────────┐          ┌─────────┐          ┌───────────┐          ┌─────────┐          ┌─────────────┐
+│         │          │         │          │           │          │         │          │             │
+│  User   │          │Frontend │          │API Routes │          │Playwright│          │LLM Service  │
+│         │          │         │          │           │          │Service   │          │             │
+└────┬────┘          └────┬────┘          └─────┬─────┘          └────┬────┘          └──────┬──────┘
+     │                     │                     │                     │                      │
+     │  1. Enter URL       │                     │                     │                      │
+     │  & Test Steps       │                     │                     │                      │
+     │ ──────────────────> │                     │                     │                      │
+     │                     │                     │                     │                      │
+     │                     │  2. Submit Test     │                     │                      │
+     │                     │  Request            │                     │                      │
+     │                     │ ──────────────────> │                     │                      │
+     │                     │                     │                     │                      │
+     │                     │                     │  3. Forward Test    │                      │
+     │                     │                     │  Request            │                      │
+     │                     │                     │ ──────────────────> │                      │
+     │                     │                     │                     │                      │
+     │                     │                     │                     │  4. Navigate to URL  │
+     │                     │                     │                     │ ──────────────────>  │
+     │                     │                     │                     │                      │
+     │                     │                     │                     │  5. Extract Page     │
+     │                     │                     │                     │  State               │
+     │                     │                     │                     │ <──────────────────  │
+     │                     │                     │                     │                      │
+     │                     │                     │                     │  6. Send Page State  │
+     │                     │                     │                     │  & Context           │
+     │                     │                     │                     │ ──────────────────>  │
+     │                     │                     │                     │                      │
+     │                     │                     │                     │  7. Return Decision  │
+     │                     │                     │                     │  (Element to         │
+     │                     │                     │                     │  Interact With)      │
+     │                     │                     │                     │ <──────────────────  │
+     │                     │                     │                     │                      │
+     │                     │                     │                     │  8. Execute Action   │
+     │                     │                     │                     │ ──────────────────>  │
+     │                     │                     │                     │                      │
+     │                     │                     │                     │  9. Extract New      │
+     │                     │                     │                     │  Page State          │
+     │                     │                     │                     │ <──────────────────  │
+     │                     │                     │                     │                      │
+     │                     │                     │                     │                      │
+     │                     │                     │                     │                      │
+     │                     │                     │                 Steps 6-9 repeat in a feedback loop
+     │                     │                     │                 until test is complete or fails
+     │                     │                     │                     │                      │
+     │                     │                     │                     │                      │
+     │                     │                     │  10. Return Test    │                      │
+     │                     │                     │  Results            │                      │
+     │                     │                     │ <─────────────────  │                      │
+     │                     │                     │                     │                      │
+     │                     │  11. Return         │                     │                      │
+     │                     │  Results            │                     │                      │
+     │                     │ <─────────────────  │                     │                      │
+     │                     │                     │                     │                      │
+     │  12. View Results   │                     │                     │                      │
+     │  & Export PDF       │                     │                     │                      │
+     │ <─────────────────  │                     │                     │                      │
+     │                     │                     │                     │                      │
+┌────┴────┐          ┌────┴────┐          ┌─────┴─────┐          ┌────┴────┐          ┌──────┴──────┐
+│         │          │         │          │           │          │         │          │             │
+│  User   │          │Frontend │          │API Routes │          │Playwright│          │LLM Service  │
+│         │          │         │          │           │          │Service   │          │             │
+└─────────┘          └─────────┘          └───────────┘          └─────────┘          └─────────────┘
+```
+
+### Key Stages in the LLM Feedback Loop:
+
+1. **Initial Navigation**: The Playwright service loads the target URL
+2. **Page State Extraction**: DOM elements, structure, and visual information are extracted
+3. **LLM Consultation**: Page state is sent to the LLM with context and instructions
+4. **Decision Making**: LLM analyzes the page and recommends the next action
+5. **Action Execution**: Playwright executes the recommended action (click, input, etc.)
+6. **Result Capture**: New page state is captured and screenshots are taken
+7. **Feedback Loop**: The new state is sent back to the LLM with previous context
+8. **Continuation**: Steps 3-7 repeat until the test completes or fails
+
+This intelligent feedback loop enables the system to adapt to different websites and UI patterns, making decisions based on the current state of the page and previous interactions.
+
+## 3. High-Level Architecture
 
 ```
 ┌─────────────────┐         ┌────────────────────┐         ┌─────────────────────┐
@@ -28,11 +112,11 @@ The Landing Page Lead Funnel Validation Tool automatically tests and validates "
 │  • URL Input    │         │ • Validation       │         │ • DOM Interaction   │
 │  • Test Results │         │ • Error Handling   │         │ • LLM Guidance      │
 │  • Screenshots  │         │ • Test Orchestration│        │ • Browser Automation│
-│                 │         │                    │         │                     │
+│  • PDF Export   │         │                    │         │                     │
 └─────────────────┘         └────────────────────┘         └─────────────────────┘
 ```
 
-## 3. Frontend Architecture
+## 4. Frontend Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -53,6 +137,15 @@ The Landing Page Lead Funnel Validation Tool automatically tests and validates "
 │  │  Steps Input   │   │  (API Calls)    │   │  Component     │   │
 │  │                │   │                 │   │                │   │
 │  └────────────────┘   └─────────────────┘   └────────────────┘   │
+│                                                    │             │
+│                                                    │             │
+│                                                    ▼             │
+│  ┌────────────────┐                                              │
+│  │                │                                              │
+│  │  PDF Export    │                                              │
+│  │  Component     │                                              │
+│  │                │                                              │
+│  └────────────────┘                                              │
 │                                                                  │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -63,8 +156,9 @@ Key components:
 - **API Service**: Handles communication with backend
 - **Screenshots Component**: Displays test progression visually 
 - **Custom Test Steps**: Allows defining natural language test instructions
+- **PDF Export**: Enables exporting test results as a comprehensive PDF report
 
-## 4. Backend Architecture
+## 5. Backend Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -109,7 +203,7 @@ Key components:
 - **LLM Service**: AI guidance for test navigation
 - **Results Processor**: Formats and returns test results
 
-## 5. Test Execution Flow
+## 6. Test Execution Flow
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
@@ -136,7 +230,7 @@ Key components:
 └─────────────────┘
 ```
 
-## 6. LLM Integration and DOM Interaction
+## 7. LLM Integration and DOM Interaction
 
 ```
 ┌──────────────────────┐          ┌───────────────────────┐
@@ -186,18 +280,61 @@ The LLM integration enables intelligent navigation through:
 3. Receiving action recommendations (which elements to click, what data to enter)
 4. Executing those actions through the DOM Interaction Layer and capturing results
 
-## 7. API Specifications
+## 8. PDF Export Feature
 
-### POST /api/test-booking-flow
+```
+┌────────────────────────────────────────────────────────────────┐
+│                       PDF Export System                        │
+│                                                                │
+│  ┌────────────────┐   ┌─────────────────┐   ┌────────────────┐ │
+│  │                │   │                 │   │                │ │
+│  │  Test Results  │──►│  HTML to Canvas │──►│  Canvas to PDF │ │
+│  │  Component     │   │  Conversion     │   │  Conversion    │ │
+│  │                │   │                 │   │                │ │
+│  └────────────────┘   └─────────────────┘   └────────────────┘ │
+│                                                    │           │
+│                                                    │           │
+│                                                    ▼           │
+│  ┌────────────────┐   ┌─────────────────┐   ┌────────────────┐ │
+│  │                │   │                 │   │                │ │
+│  │  Accordion     │   │  PDF            │   │  File          │ │
+│  │  Management    │◄──┤  Generation     │◄──┤  Download      │ │
+│  │                │   │  & Formatting   │   │  Trigger       │ │
+│  └────────────────┘   └─────────────────┘   └────────────────┘ │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+Key components:
+- **PDF Generation Utility**: Client-side PDF creation from test results
+- **HTML to Canvas Conversion**: Captures DOM elements as images for PDF inclusion
+- **Content Formatting**: Organizes test data in a readable PDF format
+- **Element Management**: Handles expanding accordions for complete capture
+- **Download Trigger**: Initiates browser download of the generated PDF
+
+The PDF export feature leverages client-side JavaScript libraries (jsPDF and html2canvas) to create comprehensive test reports that include:
+- Test metadata (URL, duration, test ID)
+- Overall test status
+- Step-by-step results with screenshots
+- LLM decision details for each step
+- Error information where applicable
+
+This client-side approach ensures privacy and performance by generating the PDF directly in the user's browser without sending data to external servers.
+
+## 9. API Specifications
+
+### POST /api/test-website
 
 **Request Body**:
 ```json
 {
   "url": "https://example.com",
   "customSteps": [
-    "Click on the Contact Us button",
-    "Fill in the form with test data",
-    "Submit the form"
+    "Click on the login button",
+    "Fill in the username field with 'test@example.com'",
+    "Enter 'password123' in the password field",
+    "Click the submit button",
+    "Verify the dashboard is displayed"
   ]
 }
 ```
@@ -207,23 +344,50 @@ The LLM integration enables intelligent navigation through:
 {
   "success": true,
   "testId": "test-123",
-  "demoFlowFound": true,
-  "bookingSuccessful": true,
+  "url": "https://example.com",
+  "interactionSuccessful": true,
   "steps": [
     {
-      "name": "Landing Page Load",
+      "name": "Page Load",
       "status": "success",
       "duration": 1240,
-      "screenshot": "base64-encoded-image"
-    },
-    // Additional steps...
+      "screenshot": "base64-encoded-image",
+      "llmDecision": {
+        "action": "identify_element",
+        "confidence": 95,
+        "reasoning": "Looking for login button based on instruction...",
+        "targetElement": {
+          "tag": "button",
+          "id": "login-btn",
+          "text": "Log In",
+          "classes": ["btn", "primary-button"]
+        }
+      }
+    }
+  ],
+  "customStepsResults": [
+    {
+      "instruction": "Click on the login button",
+      "success": true,
+      "screenshot": "base64-encoded-image",
+      "llmDecision": {
+        "action": "click",
+        "confidence": 90,
+        "reasoning": "Identified button with text 'Log In'",
+        "targetElement": {
+          "tag": "button",
+          "text": "Log In",
+          "classes": ["btn", "primary-button"]
+        }
+      }
+    }
   ],
   "totalDuration": 6390,
   "errors": []
 }
 ```
 
-## 8. Deployment Architecture
+## 10. Deployment Architecture
 
 The system uses a hybrid deployment model:
 
@@ -242,14 +406,14 @@ This approach solves:
 - Execution time constraints
 - Browser automation environment requirements
 
-## 9. Security & Monitoring
+## 11. Security & Monitoring
 
 - **Input Validation**: URL validation to prevent injection attacks
 - **Rate Limiting**: Protection against abuse
 - **Error Handling**: Graceful degradation and detailed logging
 - **Monitoring**: Performance metrics and error tracking
 
-## 10. DOM Interaction Layer Details
+## 12. DOM Interaction Layer Details
 
 ### Structure
 
@@ -296,6 +460,10 @@ This approach solves:
 - **Error Resilience**: Each method returns a success indicator and handles errors appropriately
 - **Screenshot Integration**: Built-in methods for capturing visual state
 
-## 11. Conclusion
+## 13. Conclusion
 
-This architecture provides a scalable, reliable system for validating booking flows using AI-powered testing. The separation of concerns between the Next.js frontend/API, the DOM Interaction Layer, and the LLM decision engine enables efficient resource utilization and a high degree of flexibility and maintainability.
+This architecture provides a scalable, reliable system for automated web interaction testing using AI-powered decision making. The QA Test Agent's separation of concerns between the Next.js frontend/API, the DOM Interaction Layer, and the LLM decision engine enables efficient resource utilization and a high degree of flexibility and maintainability. 
+
+The intelligent feedback loop between the browser automation and LLM components allows the system to adapt to virtually any website interface without predefined test scripts. This makes it possible to test complex user journeys using natural language instructions that non-technical stakeholders can easily define.
+
+The addition of the PDF export feature enhances the utility of the system by providing comprehensive, shareable test reports that detail the testing process and results, making it easier for teams to document and communicate test outcomes.

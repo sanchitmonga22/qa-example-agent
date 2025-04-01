@@ -197,13 +197,21 @@ export class WebSiteTest {
       let finalDecision: LLMDecision | undefined = undefined;
       let visionAnalysis = undefined;
       
+      // Capture the initial state before any actions are performed
+      const initialPageState = await this.extractPageState();
+      let beforeScreenshot = initialPageState.screenshot;
+      let previousStepScreenshot = beforeScreenshot;
+      
       // Continue executing actions until the LLM indicates the step is complete
       while (!isStepComplete) {
-        // Extract page state for LLM context
+        // Extract current page state for LLM context
         const pageState = await this.extractPageState();
         
-        // Capture the "before" screenshot
-        const beforeScreenshot = pageState.screenshot;
+        // Ensure we have the before screenshot (will be the same as previous step's after screenshot)
+        if (previousActions.length > 0) {
+          // Use the most recent "after" screenshot as the new "before" screenshot
+          beforeScreenshot = previousStepScreenshot;
+        }
         
         // Determine the action to take using LLM
         const decision = await this.llmService!.determineNextAction(
@@ -338,9 +346,12 @@ export class WebSiteTest {
           }
           
           // Capture the "after" screenshot for Vision API analysis
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for UI to update
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Increased from 1000ms to 2000ms
           const afterPageState = await this.extractPageState();
           const afterScreenshot = afterPageState.screenshot;
+          
+          // Save this screenshot to use as the "before" for the next action
+          previousStepScreenshot = afterScreenshot;
           
           // Use Vision API to analyze before and after screenshots
           if (this.llmService && beforeScreenshot && afterScreenshot) {
@@ -352,6 +363,13 @@ export class WebSiteTest {
                   afterScreenshot,
                   instruction
                 );
+                
+                // Include the screenshots in the vision analysis
+                visionAnalysis = {
+                  ...visionAnalysis,
+                  beforeScreenshot,
+                  afterScreenshot
+                };
                 
                 // Use the Vision API result as the final determination of success
                 actionSuccess = visionAnalysis.isPassed;

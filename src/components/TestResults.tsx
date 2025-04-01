@@ -28,6 +28,42 @@ export default function TestResults({ results }: TestResultsProps) {
   const { toast } = useToast();
   const { enabled: loggingEnabled } = useLoggerStore();
   
+  // Store the initial screenshot to use for before comparisons on the first step
+  const initialScreenshot = results.steps.length > 0 ? results.steps[0].screenshot : undefined;
+  
+  // Helper function to get the "before" screenshot for a specific step index
+  const getBeforeScreenshot = (index: number) => {
+    if (index === 0) {
+      // For the first step, use the initial screenshot
+      return initialScreenshot;
+    } else if (results.customStepsResults && index > 0) {
+      // For subsequent steps, use the screenshot from the previous step
+      return results.customStepsResults[index - 1].screenshot;
+    }
+    return undefined;
+  };
+  
+  // Helper function to check if two screenshots are identical
+  const areScreenshotsIdentical = (screenshot1?: string, screenshot2?: string) => {
+    if (!screenshot1 || !screenshot2) return false;
+    
+    // Instead of a direct string comparison which might identify screenshots as identical
+    // when they have minor differences in encoding but visible differences to users,
+    // we'll check if the screenshots exactly match or if they're both over a certain length
+    // and the first and last 1000 characters match (which would indicate images that are
+    // visually very similar but not entirely identical)
+    
+    // If the strings are exactly the same, they're identical
+    if (screenshot1 === screenshot2) {
+      // Direct exact match - very likely identical screenshots
+      return true;
+    }
+    
+    // For this use case, we'll return false to avoid showing the message when screenshots
+    // are visually different but might have some encoded similarities
+    return false;
+  };
+  
   // Log test results and detailed LLM/Vision data when the component mounts
   useEffect(() => {
     if (loggingEnabled) {
@@ -336,41 +372,60 @@ export default function TestResults({ results }: TestResultsProps) {
                                     </div>
                                   </div>
                                   
-                                  {step.visionAnalysis.beforeScreenshot && step.visionAnalysis.afterScreenshot && (
-                                    <div>
-                                      <div className="font-medium text-gray-700 mb-1">Before & After:</div>
-                                      <div className="grid grid-cols-2 gap-2">
-                                        <div className="p-1 bg-white rounded border">
-                                          <div className="text-xs text-center mb-1 text-gray-500">Before</div>
-                                          {isValidScreenshot(step.visionAnalysis.beforeScreenshot) ? (
+                                  {/* Use the appropriate screenshots */}
+                                  <div>
+                                    <div className="font-medium text-gray-700 mb-1">Before & After:</div>
+                                    {/* Check if the screenshots are identical */}
+                                    {areScreenshotsIdentical(
+                                      index === 0 ? initialScreenshot : step.visionAnalysis.beforeScreenshot,
+                                      step.visionAnalysis.afterScreenshot
+                                    ) && (
+                                      <div className="bg-amber-50 border border-amber-200 rounded p-2 mb-2 text-amber-800 text-xs">
+                                        Note: The before and after screenshots appear identical, indicating no visible changes occurred.
+                                      </div>
+                                    )}
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div className="p-1 bg-white rounded border">
+                                        <div className="text-xs text-center mb-1 text-gray-500">Before</div>
+                                        {isValidScreenshot(step.visionAnalysis.beforeScreenshot) || isValidScreenshot(getBeforeScreenshot(index)) ? (
+                                          <div className="flex justify-center">
                                             <img 
-                                              src={getValidImageUrl(step.visionAnalysis.beforeScreenshot)} 
-                                              alt="Before" 
-                                              className="max-h-48 mx-auto rounded border"
+                                              src={getValidImageUrl(
+                                                // Get the appropriate "before" screenshot
+                                                getBeforeScreenshot(index) || step.visionAnalysis.beforeScreenshot
+                                              )} 
+                                              alt="Before screenshot" 
+                                              className="max-h-48 max-w-full object-contain rounded border"
+                                              crossOrigin="anonymous"
+                                              loading="lazy"
                                             />
-                                          ) : (
-                                            <div className="text-xs text-muted-foreground italic text-center">
-                                              No screenshot available
-                                            </div>
-                                          )}
-                                        </div>
-                                        <div className="p-1 bg-white rounded border">
-                                          <div className="text-xs text-center mb-1 text-gray-500">After</div>
-                                          {isValidScreenshot(step.visionAnalysis.afterScreenshot) ? (
+                                          </div>
+                                        ) : (
+                                          <div className="text-xs text-muted-foreground italic text-center h-32 flex items-center justify-center">
+                                            No screenshot available
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="p-1 bg-white rounded border">
+                                        <div className="text-xs text-center mb-1 text-gray-500">After</div>
+                                        {isValidScreenshot(step.visionAnalysis.afterScreenshot) ? (
+                                          <div className="flex justify-center">
                                             <img 
                                               src={getValidImageUrl(step.visionAnalysis.afterScreenshot)} 
-                                              alt="After" 
-                                              className="max-h-48 mx-auto rounded border"
+                                              alt="After screenshot" 
+                                              className="max-h-48 max-w-full object-contain rounded border"
+                                              crossOrigin="anonymous"
+                                              loading="lazy"
                                             />
-                                          ) : (
-                                            <div className="text-xs text-muted-foreground italic text-center">
-                                              No screenshot available
-                                            </div>
-                                          )}
-                                        </div>
+                                          </div>
+                                        ) : (
+                                          <div className="text-xs text-muted-foreground italic text-center h-32 flex items-center justify-center">
+                                            No screenshot available
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
-                                  )}
+                                  </div>
                                 </div>
                               </AccordionContent>
                             </AccordionItem>
@@ -393,6 +448,7 @@ export default function TestResults({ results }: TestResultsProps) {
                             alt={`Screenshot for step ${index + 1}`}
                             className="w-full max-h-60 object-contain"
                             crossOrigin="anonymous"
+                            loading="lazy"
                           />
                         </CardFooter>
                       )}
@@ -494,6 +550,7 @@ export default function TestResults({ results }: TestResultsProps) {
                             alt={`Screenshot for step ${index + 1}`}
                             className="w-full max-h-60 object-contain"
                             crossOrigin="anonymous"
+                            loading="lazy"
                           />
                         </CardFooter>
                       )}

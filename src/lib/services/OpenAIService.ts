@@ -448,6 +448,7 @@ Respond with a JSON object containing:
       
       const parsedResponse = this.extractJSONFromResponse(content);
       
+      // Always include the screenshots in the result
       return {
         isPassed: Boolean(parsedResponse.isPassed),
         confidence: Number(parsedResponse.confidence || 50),

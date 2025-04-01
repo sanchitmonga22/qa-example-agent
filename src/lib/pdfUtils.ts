@@ -1,24 +1,33 @@
-import { TestWebsiteResponse, TestError, TestStep } from "@/lib/types";
+import { TestWebsiteResponse, TestError } from "@/lib/types";
 import { formatDuration } from "@/lib/utils";
+import { pdfLogger } from "@/lib/logger";
 
 // Helper function to sanitize and validate base64 data
 export const getValidImageUrl = (base64Data?: string): string => {
-  if (!base64Data || base64Data.trim() === '') {
+  if (!base64Data || base64Data.trim() === '' || base64Data.length < 100) {
     return '';
   }
   
-  // Ensure the base64 data doesn't already have the data:image prefix
+  // If it already has a data URL prefix, return it as is
   if (base64Data.startsWith('data:image/')) {
     return base64Data;
   }
   
-  // Otherwise, add the proper prefix
+  // Extract base64 content if it already has a data URL prefix of any kind
+  if (base64Data.startsWith('data:')) {
+    const parts = base64Data.split(',');
+    if (parts.length > 1) {
+      base64Data = parts[1];
+    }
+  }
+  
+  // Add the proper prefix - use PNG format for better compatibility
   return `data:image/png;base64,${base64Data.trim()}`;
 };
 
 // Helper to check if a screenshot is valid
 export const isValidScreenshot = (screenshot?: string): boolean => {
-  return !!screenshot && screenshot.trim() !== '';
+  return !!screenshot && screenshot.trim() !== '' && screenshot.length > 100;
 };
 
 export const generateTestResultsPDF = async (
@@ -29,21 +38,29 @@ export const generateTestResultsPDF = async (
   onError: (error: any) => void
 ) => {
   try {
+    pdfLogger.info(`Starting PDF generation for test ID: ${results.testId}`);
+    
     // Import libraries dynamically to reduce initial bundle size
     const [jsPDF, html2canvas] = await Promise.all([
       import('jspdf').then(module => module.default),
       import('html2canvas').then(module => module.default)
     ]);
     
-    if (!reportElement) return;
+    if (!reportElement) {
+      pdfLogger.error('Report element not found');
+      return;
+    }
     
     onStart();
+    pdfLogger.debug('PDF generation started');
     
     const content = reportElement;
     
     // First, expand all the accordions for the PDF
     const accordionTriggers = content.querySelectorAll('.accordion-trigger');
     const originalStates: boolean[] = [];
+    
+    pdfLogger.debug(`Found ${accordionTriggers.length} accordion triggers`);
     
     accordionTriggers.forEach((trigger) => {
       const expanded = trigger.getAttribute('data-state') === 'open';
@@ -59,6 +76,8 @@ export const generateTestResultsPDF = async (
     const pageHeight = 297; // A4 height in mm
     const margin = 10; // margin in mm
     const contentWidth = pageWidth - (margin * 2);
+    
+    pdfLogger.debug('PDF instance created with A4 dimensions');
     
     // Add title
     pdf.setFontSize(16);
@@ -86,11 +105,15 @@ export const generateTestResultsPDF = async (
     pdf.text("Test Steps", margin, yPos);
     yPos += 10;
     
+    pdfLogger.debug('Added basic test information to PDF');
+    
     // Function to add LLM decision details to PDF
     const addLLMDecisionToPdf = (llmDecision: any, startY: number): number => {
       let y = startY;
       
       if (!llmDecision) return y;
+      
+      pdfLogger.debug(`Adding LLM decision details, action: ${llmDecision.action}, confidence: ${llmDecision.confidence}`);
       
       pdf.setFontSize(11);
       pdf.text("LLM Decision Details:", margin + 5, y);
@@ -115,6 +138,7 @@ export const generateTestResultsPDF = async (
         if (y + (reasoningText.length * 3.5) > pageHeight - margin) {
           pdf.addPage();
           y = margin + 10;
+          pdfLogger.debug('Added new page for LLM reasoning');
         }
         
         pdf.setFontSize(8);
@@ -128,6 +152,7 @@ export const generateTestResultsPDF = async (
         if (y + 15 > pageHeight - margin) {
           pdf.addPage();
           y = margin + 10;
+          pdfLogger.debug('Added new page for LLM explanation');
         }
         
         pdf.setFontSize(9);
@@ -146,6 +171,7 @@ export const generateTestResultsPDF = async (
         if (y + 15 > pageHeight - margin) {
           pdf.addPage();
           y = margin + 10;
+          pdfLogger.debug('Added new page for target element details');
         }
         
         pdf.setFontSize(9);
@@ -176,14 +202,126 @@ export const generateTestResultsPDF = async (
       return y + 5; // Add some spacing
     };
     
+    // Function to add Vision API analysis to PDF
+    const addVisionAnalysisToPdf = (visionAnalysis: any, startY: number): number => {
+      let y = startY;
+      
+      if (!visionAnalysis) return y;
+      
+      pdfLogger.debug(`Adding Vision API analysis, result: ${visionAnalysis.isPassed ? 'PASSED' : 'FAILED'}, confidence: ${visionAnalysis.confidence}`);
+      
+      pdf.setFontSize(11);
+      pdf.text("Vision API Analysis:", margin + 5, y);
+      y += 6;
+      
+      // Basic details
+      pdf.setFontSize(9);
+      pdf.text(`• Result: ${visionAnalysis.isPassed ? "PASSED" : "FAILED"}`, margin + 8, y); y += 5;
+      pdf.text(`• Confidence: ${visionAnalysis.confidence}%`, margin + 8, y); y += 5;
+      
+      // Reasoning
+      if (visionAnalysis.reasoning) {
+        pdf.text("• Visual Analysis:", margin + 8, y); y += 5;
+        
+        const reasoningText = pdf.splitTextToSize(visionAnalysis.reasoning, contentWidth - 16);
+        
+        // Check if we need a new page
+        if (y + (reasoningText.length * 3.5) > pageHeight - margin) {
+          pdf.addPage();
+          y = margin + 10;
+          pdfLogger.debug('Added new page for Vision API reasoning');
+        }
+        
+        pdf.setFontSize(8);
+        pdf.text(reasoningText, margin + 10, y);
+        y += (reasoningText.length * 3.5) + 3;
+      }
+      
+      // Add before/after screenshots side by side if available
+      if (visionAnalysis.beforeScreenshot && visionAnalysis.afterScreenshot) {
+        // Check if we need a new page - screenshots need more space
+        if (y + 70 > pageHeight - margin) {
+          pdf.addPage();
+          y = margin + 10;
+          pdfLogger.debug('Added new page for before/after screenshots');
+        }
+        
+        pdf.setFontSize(9);
+        pdf.text("• Before & After Screenshots:", margin + 8, y); y += 6;
+        
+        // Try to add before screenshot
+        if (isValidScreenshot(visionAnalysis.beforeScreenshot)) {
+          try {
+            const beforeImgData = getValidImageUrl(visionAnalysis.beforeScreenshot);
+            const halfWidth = (contentWidth - 10) / 2;
+            
+            pdf.addImage(
+              beforeImgData, 
+              'PNG', 
+              margin + 8, 
+              y, 
+              halfWidth, 
+              50, 
+              'before_img', 
+              'FAST'
+            );
+            
+            // Add label
+            pdf.setFontSize(8);
+            pdf.text("Before", margin + 8 + (halfWidth / 2) - 8, y - 2);
+            
+            pdfLogger.debug('Added before screenshot to PDF');
+          } catch (e) {
+            pdfLogger.error('Error adding before screenshot to PDF', e);
+            console.error('Error adding before screenshot to PDF:', e);
+          }
+        }
+        
+        // Try to add after screenshot
+        if (isValidScreenshot(visionAnalysis.afterScreenshot)) {
+          try {
+            const afterImgData = getValidImageUrl(visionAnalysis.afterScreenshot);
+            const halfWidth = (contentWidth - 10) / 2;
+            
+            pdf.addImage(
+              afterImgData, 
+              'PNG', 
+              margin + 12 + halfWidth, 
+              y, 
+              halfWidth, 
+              50, 
+              'after_img', 
+              'FAST'
+            );
+            
+            // Add label
+            pdf.setFontSize(8);
+            pdf.text("After", margin + 12 + halfWidth + (halfWidth / 2) - 8, y - 2);
+            
+            pdfLogger.debug('Added after screenshot to PDF');
+          } catch (e) {
+            pdfLogger.error('Error adding after screenshot to PDF', e);
+            console.error('Error adding after screenshot to PDF:', e);
+          }
+        }
+        
+        y += 55; // Move down past the screenshots
+      }
+      
+      return y + 5; // Add some spacing
+    };
+    
     // Function to add step information
-    const addStepToPdf = async (stepNumber: number, name: string, status: string, llmDecision: any, error: string | null, screenshot?: string) => {
+    const addStepToPdf = async (stepNumber: number, name: string, status: string, llmDecision: any, visionAnalysis: any, error: string | null, screenshot?: string) => {
+      pdfLogger.info(`Adding step ${stepNumber}: ${name} (${status}) to PDF`);
+      
       pdf.setFontSize(12);
       
       // Check if we need a new page
       if (yPos > pageHeight - margin * 4) {
         pdf.addPage();
         yPos = margin + 10;
+        pdfLogger.debug(`Added new page for step ${stepNumber}`);
       }
       
       // Add step info
@@ -195,12 +333,18 @@ export const generateTestResultsPDF = async (
         yPos = addLLMDecisionToPdf(llmDecision, yPos);
       }
       
+      // Add Vision API analysis
+      if (visionAnalysis) {
+        yPos = addVisionAnalysisToPdf(visionAnalysis, yPos);
+      }
+      
       // Add error if present
       if (error) {
         // Check if we need a new page
         if (yPos + 15 > pageHeight - margin) {
           pdf.addPage();
           yPos = margin + 10;
+          pdfLogger.debug(`Added new page for error in step ${stepNumber}`);
         }
         
         pdf.setFontSize(11);
@@ -211,6 +355,8 @@ export const generateTestResultsPDF = async (
         pdf.setFontSize(9);
         pdf.text(errorText, margin + 8, yPos);
         yPos += (errorText.length * 3.5) + 5;
+        
+        pdfLogger.warn(`Error in step ${stepNumber}: ${error}`);
       }
       
       // Add screenshot if available
@@ -244,6 +390,7 @@ export const generateTestResultsPDF = async (
           if (yPos + pdfImgHeight > pageHeight - margin) {
             pdf.addPage();
             yPos = margin + 10;
+            pdfLogger.debug(`Added new page for screenshot in step ${stepNumber}`);
           }
           
           // Add the image to PDF
@@ -257,7 +404,9 @@ export const generateTestResultsPDF = async (
           );
           
           yPos += pdfImgHeight + 10;
+          pdfLogger.debug(`Added screenshot to step ${stepNumber}`);
         } catch (error) {
+          pdfLogger.error(`Error adding screenshot to step ${stepNumber}`, error);
           console.error('Error adding screenshot to PDF:', error);
           yPos += 5;
         }
@@ -267,36 +416,50 @@ export const generateTestResultsPDF = async (
       yPos += 5;
     };
     
-    // Add steps
-    const hasCustomSteps = results.customStepsResults && results.customStepsResults.length > 0;
-    
-    if (hasCustomSteps) {
-      // Add custom steps
-      pdf.setFontSize(13);
-      pdf.text("Custom Steps", margin, yPos);
+    // Add custom steps if available
+    if (results.customStepsResults && results.customStepsResults.length > 0) {
+      pdf.addPage();
+      yPos = margin + 20;
+      
+      pdf.setFontSize(14);
+      pdf.text("Custom Test Steps", margin, yPos);
       yPos += 10;
       
-      // Process steps sequentially
-      for (let index = 0; index < results.customStepsResults!.length; index++) {
-        const step = results.customStepsResults![index];
+      pdfLogger.info(`Adding ${results.customStepsResults.length} custom steps to PDF`);
+      
+      for (let i = 0; i < results.customStepsResults.length; i++) {
+        const step = results.customStepsResults[i];
         await addStepToPdf(
-          index + 1, 
-          step.instruction, 
-          step.success ? "Success" : "Failure",
+          i + 1,
+          step.instruction,
+          step.status === "success" ? "Success" : "Failure",
           step.llmDecision,
+          step.visionAnalysis,
           step.error || null,
           step.screenshot
         );
       }
-    } else {
-      // Add regular steps
-      for (let index = 0; index < results.steps.length; index++) {
-        const step = results.steps[index];
+    }
+
+    // Add standard steps
+    if (results.steps && results.steps.length > 0) {
+      pdf.addPage();
+      yPos = margin + 20;
+      
+      pdf.setFontSize(14);
+      pdf.text("Standard Test Steps", margin, yPos);
+      yPos += 10;
+      
+      pdfLogger.info(`Adding ${results.steps.length} standard steps to PDF`);
+      
+      for (let i = 0; i < results.steps.length; i++) {
+        const step = results.steps[i];
         await addStepToPdf(
-          index + 1, 
-          step.name.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()), 
+          i + 1,
+          step.name,
           step.status === "success" ? "Success" : "Failure",
           step.llmDecision,
+          null, // Standard steps don't have Vision API analysis
           step.error || null,
           step.screenshot
         );
@@ -309,11 +472,14 @@ export const generateTestResultsPDF = async (
       if (yPos > pageHeight - 40) {
         pdf.addPage();
         yPos = margin + 10;
+        pdfLogger.debug('Added new page for errors section');
       }
       
       pdf.setFontSize(14);
       pdf.text("Errors", margin, yPos);
       yPos += 10;
+      
+      pdfLogger.info(`Adding ${results.errors.length} errors to PDF`);
       
       results.errors.forEach((error: TestError, index) => {
         pdf.setFontSize(12);
@@ -329,11 +495,14 @@ export const generateTestResultsPDF = async (
           if (yPos + (splitDetails.length * 5) > pageHeight - margin) {
             pdf.addPage();
             yPos = margin + 10;
+            pdfLogger.debug(`Added new page for error ${index + 1} details`);
           }
           
           pdf.text(splitDetails, margin, yPos);
           yPos += (splitDetails.length * 5) + 5;
         }
+        
+        pdfLogger.error(`Error ${index + 1}: ${error.message}`, error.details);
       });
     }
     
@@ -346,10 +515,13 @@ export const generateTestResultsPDF = async (
     });
     
     // Save the PDF
+    pdfLogger.info(`Saving PDF as test-report-${results.testId}.pdf`);
     pdf.save(`test-report-${results.testId}.pdf`);
     
     onSuccess();
+    pdfLogger.info('PDF generation completed successfully');
   } catch (error) {
+    pdfLogger.error('Error generating PDF', error);
     console.error('Error generating PDF:', error);
     onError(error);
   }

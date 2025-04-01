@@ -56,7 +56,7 @@ export class TestResultService {
     const testStatus = this.testStatuses.get(testId);
     if (!testStatus) return null;
 
-    testStatus.progress = progress;
+    testStatus.progress = Math.min(99, progress); // Cap at 99% until complete
     this.testStatuses.set(testId, testStatus);
 
     return testStatus;
@@ -91,6 +91,12 @@ export class TestResultService {
       testStatus.result.customStepsResults = [customStepResult];
     }
 
+    // Update progress based on step completion
+    // If we have custom steps, calculate progress based on number completed
+    const totalSteps = testStatus.result.customStepsResults.length;
+    const progress = Math.min(25 + Math.floor((totalSteps / (totalSteps + 1)) * 74), 99);
+    testStatus.progress = progress;
+
     this.testStatuses.set(testId, testStatus);
     return testStatus;
   }
@@ -118,7 +124,12 @@ export class TestResultService {
       interactionSuccessful: result.interactionSuccessful
     };
 
+    // Ensure we're storing it properly
     this.testHistories.set(result.testId, historyItem);
+    
+    // Debug log to verify history is being saved
+    console.log(`Test history saved for ID: ${result.testId}, Total history items: ${this.testHistories.size}`);
+    
     return testStatus;
   }
 
@@ -129,10 +140,25 @@ export class TestResultService {
     const testStatus: TestStatusResponse = {
       testId,
       status: 'failed',
-      error
+      error,
+      progress: 100 // Mark as fully complete but failed
     };
 
     this.testStatuses.set(testId, testStatus);
+    
+    // Also add to history when a test fails
+    const historyItem: TestHistoryItem = {
+      id: testId,
+      url: this.testStatuses.get(testId)?.result?.url || 'unknown',
+      timestamp: new Date().toISOString(),
+      success: false,
+      primaryCTAFound: false,
+      interactionSuccessful: false,
+      error: error
+    };
+    
+    this.testHistories.set(testId, historyItem);
+    
     return testStatus;
   }
 
@@ -147,8 +173,15 @@ export class TestResultService {
    * Get all test history items
    */
   public getAllTestHistory(): TestHistoryItem[] {
-    return Array.from(this.testHistories.values())
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    // Convert the Map values to an array and sort by timestamp
+    const historyItems = Array.from(this.testHistories.values());
+    
+    // Debug log to check if we have history items
+    console.log(`Getting all test history. Total items: ${historyItems.length}`);
+    
+    return historyItems.sort((a, b) => 
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
   }
 
   /**
@@ -156,5 +189,13 @@ export class TestResultService {
    */
   public getTestHistoryById(id: string): TestHistoryItem | null {
     return this.testHistories.get(id) || null;
+  }
+  
+  /**
+   * Clear all history (for testing purposes)
+   */
+  public clearHistory(): void {
+    this.testHistories.clear();
+    this.testStatuses.clear();
   }
 } 

@@ -78,6 +78,12 @@
   - [x] List all test history
 - [x] Implement `/api/test-history/:id` endpoint
   - [x] Get specific test details
+- [ ] Implement `/api/reports` endpoint
+  - [ ] Generate comprehensive test reports
+  - [ ] Store report data
+- [ ] Implement `/api/reports/:id` endpoint
+  - [ ] Retrieve specific report
+  - [ ] Support different format outputs
 
 ### LLM Integration
 - [x] Create base LLM service interface
@@ -89,6 +95,11 @@
   - [x] Set up authentication
   - [x] Implement chat completion methods
   - [x] Create domain-specific prompts for web navigation
+- [ ] Implement OpenAI Vision API integration
+  - [ ] Set up image processing for screenshots
+  - [ ] Create specialized vision prompts
+  - [ ] Implement visual element recognition
+  - [ ] Develop visual-DOM correlation utilities
 - [x] Implement LLM-guided decision making
   - [x] Create methods to extract DOM elements
   - [x] Build screenshot capture and encoding utilities
@@ -159,6 +170,11 @@
   - [x] Handle cases where LLM suggestions fail
   - [x] Implement alternative element selection approaches
   - [x] Provide detailed feedback to LLM for retry
+- [ ] Implement visual page analysis with OpenAI Vision
+  - [ ] Capture full-page screenshots for analysis
+  - [ ] Process images for optimal Vision API input
+  - [ ] Extract visual reasoning from Vision API responses
+  - [ ] Combine visual and DOM-based decision making
 
 ### Landing Page Testing
 - [x] Implement page load and validation
@@ -362,3 +378,63 @@
 - [x] Enhanced user experience
 - [x] Permanent record of test outcomes
 - [x] Professional presentation for stakeholders 
+
+## 14. Test Reports System
+
+### Key Features
+- [ ] Comprehensive report generation
+  - [ ] Test metadata and summary section
+  - [ ] Step-by-step results with status indicators
+  - [ ] Visual evidence with optimized screenshots
+  - [ ] LLM decision details with visual reasoning
+  - [ ] Error information with troubleshooting guidance
+- [ ] Report storage and retrieval
+  - [ ] Efficient storage mechanism for reports
+  - [ ] Fast retrieval API
+  - [ ] Report versioning support
+- [ ] User-friendly report viewer
+  - [ ] Clean, organized layout for results
+  - [ ] Interactive elements for detailed exploration
+  - [ ] Filter and search capabilities
+- [ ] Multi-format export options
+  - [ ] PDF export with professional formatting
+  - [ ] JSON format for data portability
+  - [ ] CSV export for specific metrics
+- [ ] Report sharing features
+  - [ ] Direct link sharing
+  - [ ] Access control options
+  - [ ] Integration with notification systems
+
+### Benefits
+- [x] Enhanced visibility into test processes and outcomes
+- [x] Better communication of test results across teams
+- [x] Persistent audit trail of testing activities
+- [x] Improved troubleshooting through comprehensive evidence
+- [x] Professional presentation for stakeholder reviews
+
+## 15. OpenAI Vision API Integration
+
+### Key Features
+- [ ] Visual element recognition
+  - [ ] Screenshot capture and optimization
+  - [ ] Image processing for Vision API
+  - [ ] Element boundary detection
+- [ ] Vision-guided decision making
+  - [ ] Specialized prompts for visual analysis
+  - [ ] Visual context integration with DOM data
+  - [ ] Visual reasoning extraction and application
+- [ ] Visual verification
+  - [ ] Success state visual confirmation
+  - [ ] Error state visual recognition
+  - [ ] UI change detection through visual comparison
+- [ ] Enhanced interaction accuracy
+  - [ ] More precise element targeting
+  - [ ] Better handling of visually distinct but DOM-similar elements
+  - [ ] Improved navigation of complex layouts
+
+### Benefits
+- [ ] More human-like page interpretation and interaction
+- [ ] Higher success rate on visually complex interfaces
+- [ ] Better understanding of UI context and relationships
+- [ ] Reduced dependence on perfect DOM structure
+- [ ] Improved test reliability and accuracy 

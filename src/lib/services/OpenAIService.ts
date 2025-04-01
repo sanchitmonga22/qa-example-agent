@@ -4,7 +4,7 @@
  */
 
 import { BaseLLMService } from "./BaseLLMService";
-import { ElementSelection, FormFieldIdentification, LLMDecision, PageState } from "../types";
+import { ElementSelection, FormFieldIdentification, LLMDecision, PageState, VisionAnalysisResult } from "../types";
 import OpenAI from "openai";
 
 export class OpenAIService extends BaseLLMService {
@@ -361,6 +361,108 @@ Respond with a JSON object containing:
         isConfirmation: false,
         confidence: 0,
         reasoning: `Failed to parse LLM response: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
+
+  /**
+   * Analyzes before and after screenshots to determine if the requested action was successful
+   * @param beforeScreenshot Base64 encoded before screenshot
+   * @param afterScreenshot Base64 encoded after screenshot
+   * @param instruction The user instruction for this step
+   */
+  async analyzeScreenshots(
+    beforeScreenshot: string,
+    afterScreenshot: string,
+    instruction: string
+  ): Promise<VisionAnalysisResult> {
+    try {
+      // Helper function to properly format image URLs for the API
+      const formatImageUrl = (base64String: string) => {
+        // If it already has a data URL prefix, extract just the base64 content
+        if (base64String.startsWith('data:')) {
+          const parts = base64String.split(',');
+          if (parts.length > 1) {
+            base64String = parts[1];
+          }
+        }
+        
+        // Return a properly formatted data URL with PNG format
+        return `data:image/png;base64,${base64String}`;
+      };
+
+      const response = await this.client.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert web testing assistant. Your task is to analyze before and after screenshots 
+            of a web page to determine if a requested user action was successfully executed. 
+            Provide detailed reasoning about visual changes and whether the action appears to have succeeded or failed.`
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Analyze these before and after screenshots of a webpage where the following user action was attempted:
+                
+                "${instruction}"
+                
+                Determine if the action was successfully completed based on visual evidence. Look for:
+                1. Element state changes (buttons, forms, etc.)
+                2. Page navigation or content changes
+                3. Error messages or confirmations
+                4. Progress indicators
+                
+                Respond with a JSON object containing:
+                1. isPassed: Boolean indicating if the action succeeded
+                2. confidence: Number between 0-100 indicating your confidence
+                3. reasoning: Detailed explanation of your determination based on visual evidence`
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: formatImageUrl(beforeScreenshot),
+                  detail: "high"
+                }
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: formatImageUrl(afterScreenshot),
+                  detail: "high"
+                }
+              }
+            ]
+          }
+        ],
+        max_tokens: 1500,
+        temperature: 0.2
+      });
+      
+      const content = response.choices[0]?.message.content;
+      if (!content) {
+        throw new Error("Empty response from OpenAI Vision API");
+      }
+      
+      const parsedResponse = this.extractJSONFromResponse(content);
+      
+      return {
+        isPassed: Boolean(parsedResponse.isPassed),
+        confidence: Number(parsedResponse.confidence || 50),
+        reasoning: parsedResponse.reasoning || "No reasoning provided",
+        beforeScreenshot,
+        afterScreenshot
+      };
+    } catch (error) {
+      console.error("Failed to analyze screenshots with Vision API:", error);
+      return {
+        isPassed: false,
+        confidence: 0,
+        reasoning: `Failed to analyze with Vision API: ${error instanceof Error ? error.message : String(error)}`,
+        beforeScreenshot,
+        afterScreenshot
       };
     }
   }

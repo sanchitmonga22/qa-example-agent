@@ -11,6 +11,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle, Plus, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Switch } from "@/components/ui/switch";
+import { useLoggerStore, uiLogger } from "@/lib/logger";
 
 // Define the form schema with Zod
 const formSchema = z.object({
@@ -19,12 +21,14 @@ const formSchema = z.object({
     .url("Please enter a valid URL")
     .startsWith("http", "URL must start with http:// or https://"),
   customSteps: z.array(z.string()).optional(),
+  headless: z.boolean().default(true),
+  detailedLogging: z.boolean().default(false),
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
 interface UrlInputFormProps {
-  onSubmit: (url: string, customSteps?: string[]) => Promise<void>;
+  onSubmit: (url: string, customSteps?: string[], options?: { headless?: boolean, detailedLogging?: boolean }) => Promise<void>;
   isLoading?: boolean;
 }
 
@@ -32,6 +36,7 @@ export default function UrlInputForm({ onSubmit, isLoading = false }: UrlInputFo
   const [error, setError] = useState<string | null>(null);
   const [customSteps, setCustomSteps] = useState<string[]>([]);
   const [currentStep, setCurrentStep] = useState<string>("");
+  const { enabled: loggerEnabled, setEnabled: setLoggerEnabled } = useLoggerStore();
 
   // Pre-populate default test steps on component mount
   useEffect(() => {
@@ -41,22 +46,62 @@ export default function UrlInputForm({ onSubmit, isLoading = false }: UrlInputFo
       "Select a time from the calendar",
       "Fill out the contact form with random information(name: Sanchit Monga, email: sanchitmonga22@gmail.com, phone: 5858314795, company: PrependAI, job title: Founder) and submit"
     ]);
-  }, []);
+    
+    if (loggerEnabled) {
+      uiLogger.debug("UrlInputForm mounted with default steps");
+    }
+  }, [loggerEnabled]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       url: "",
       customSteps: [],
+      headless: true,
+      detailedLogging: loggerEnabled,
     },
   });
+
+  // Sync form value with logger store
+  useEffect(() => {
+    const subscription = form.watch((value) => {
+      if (value.detailedLogging !== undefined) {
+        setLoggerEnabled(value.detailedLogging);
+        if (value.detailedLogging) {
+          uiLogger.info("Detailed logging enabled by user");
+        }
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form, setLoggerEnabled]);
 
   const handleSubmit = async (values: FormValues) => {
     try {
       setError(null);
-      await onSubmit(values.url, customSteps.length > 0 ? customSteps : undefined);
+      
+      if (values.detailedLogging) {
+        uiLogger.info("Form submitted", {
+          url: values.url,
+          stepsCount: customSteps.length,
+          headless: values.headless
+        });
+      }
+      
+      await onSubmit(
+        values.url, 
+        customSteps.length > 0 ? customSteps : undefined, 
+        { 
+          headless: values.headless,
+          detailedLogging: values.detailedLogging
+        }
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An unknown error occurred");
+      const errorMessage = err instanceof Error ? err.message : "An unknown error occurred";
+      setError(errorMessage);
+      
+      if (values.detailedLogging) {
+        uiLogger.error("Form submission error", { error: errorMessage });
+      }
     }
   };
 
@@ -64,17 +109,37 @@ export default function UrlInputForm({ onSubmit, isLoading = false }: UrlInputFo
     if (currentStep.trim()) {
       setCustomSteps([...customSteps, currentStep.trim()]);
       setCurrentStep("");
+      
+      if (loggerEnabled) {
+        uiLogger.debug("Custom step added", { stepCount: customSteps.length + 1 });
+      }
     }
   };
 
   const removeCustomStep = (index: number) => {
+    if (loggerEnabled) {
+      uiLogger.debug("Custom step removed", { 
+        index,
+        step: customSteps[index]
+      });
+    }
+    
     setCustomSteps(customSteps.filter((_, i) => i !== index));
   };
 
   const updateCustomStep = (index: number, value: string) => {
     const updatedSteps = [...customSteps];
+    const oldValue = updatedSteps[index];
     updatedSteps[index] = value;
     setCustomSteps(updatedSteps);
+    
+    if (loggerEnabled) {
+      uiLogger.debug("Custom step updated", { 
+        index,
+        oldValue,
+        newValue: value
+      });
+    }
   };
 
   return (
@@ -99,6 +164,50 @@ export default function UrlInputForm({ onSubmit, isLoading = false }: UrlInputFo
                   Enter the URL of the landing page you want to test
                 </FormDescription>
                 <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="headless"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                <div className="space-y-0.5">
+                  <FormLabel>Headless Mode</FormLabel>
+                  <FormDescription>
+                    Turn off to watch the browser actions in real-time
+                  </FormDescription>
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={isLoading}
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="detailedLogging"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                <div className="space-y-0.5">
+                  <FormLabel>Detailed Logging</FormLabel>
+                  <FormDescription>
+                    Enable to capture detailed logs during test execution
+                  </FormDescription>
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={isLoading}
+                  />
+                </FormControl>
               </FormItem>
             )}
           />

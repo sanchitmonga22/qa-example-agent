@@ -4,10 +4,14 @@
 export interface TestWebsiteRequest {
   url: string;
   customSteps?: string[];
-  options?: {
-    timeout?: number;
-    screenshotCapture?: boolean;
-  };
+  options?: TestWebsiteOptions;
+}
+
+export interface TestWebsiteOptions {
+  timeout?: number;
+  screenshotCapture?: boolean;
+  headless?: boolean;
+  detailedLogging?: boolean;
 }
 
 // Keeping old type for backwards compatibility
@@ -78,6 +82,7 @@ export interface TestHistoryItem {
   interactionSuccessful?: boolean;
   demoFlowFound?: boolean;
   bookingSuccessful?: boolean;
+  error?: string;
 }
 
 /**
@@ -133,6 +138,14 @@ export interface FormFieldIdentification {
   confidence: number;
 }
 
+export interface VisionAnalysisResult {
+  isPassed: boolean;
+  confidence: number;
+  reasoning: string;
+  beforeScreenshot?: string;
+  afterScreenshot?: string;
+}
+
 export interface CustomStepResult {
   instruction: string;
   success: boolean;
@@ -140,4 +153,5 @@ export interface CustomStepResult {
   llmDecision?: LLMDecision;
   error?: string;
   status?: "success" | "failure" | "running";
+  visionAnalysis?: VisionAnalysisResult;
 } 

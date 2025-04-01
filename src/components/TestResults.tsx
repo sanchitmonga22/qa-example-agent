@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -11,9 +11,11 @@ import { formatDuration } from "@/lib/utils";
 import StatusIndicator from "@/components/StatusIndicator";
 import Screenshots from "@/components/Screenshots";
 import { TestWebsiteResponse, TestError, TestStep } from "@/lib/types";
-import { CheckCircle, FileDown, Download } from "lucide-react";
+import { CheckCircle, FileDown } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { generateTestResultsPDF, getValidImageUrl, isValidScreenshot } from "@/lib/pdfUtils";
+import { LoggerPanel } from "@/components/LoggerPanel";
+import { useLoggerStore, uiLogger, testLogger, llmLogger, visionLogger, initializeTestLogging } from "@/lib/logger";
 
 interface TestResultsProps {
   results: TestWebsiteResponse;
@@ -24,10 +26,94 @@ export default function TestResults({ results }: TestResultsProps) {
   const hasCustomSteps = results.customStepsResults && results.customStepsResults.length > 0;
   const reportRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { enabled: loggingEnabled } = useLoggerStore();
+  
+  // Log test results and detailed LLM/Vision data when the component mounts
+  useEffect(() => {
+    if (loggingEnabled) {
+      const cleanupLogging = initializeTestLogging(results.testId, results.url);
+      
+      testLogger.info(`Test results loaded: ${results.success ? 'SUCCESS' : 'FAILURE'}`, {
+        testId: results.testId,
+        success: results.success,
+        primaryCTAFound: results.primaryCTAFound,
+        interactionSuccessful: results.interactionSuccessful,
+        duration: results.totalDuration,
+        stepsCount: results.steps.length,
+        customStepsCount: results.customStepsResults?.length || 0,
+        errorsCount: results.errors.length
+      });
+      
+      // Log all standard steps
+      results.steps.forEach((step, index) => {
+        testLogger.info(`Standard step ${index + 1}: ${step.name} - ${step.status}`, {
+          duration: step.duration,
+          hasScreenshot: !!step.screenshot,
+          hasError: !!step.error
+        });
+        
+        // Log LLM decisions if available
+        if (step.llmDecision) {
+          llmLogger.logLLMDecision(step.llmDecision, step.name);
+        }
+        
+        // Log errors if any
+        if (step.error) {
+          testLogger.error(`Error in step ${index + 1} (${step.name})`, step.error);
+        }
+      });
+      
+      // Log all custom steps
+      if (hasCustomSteps && results.customStepsResults) {
+        results.customStepsResults.forEach((step, index) => {
+          testLogger.info(`Custom step ${index + 1}: ${step.instruction} - ${step.status}`, {
+            success: step.success,
+            hasScreenshot: !!step.screenshot,
+            hasError: !!step.error,
+            hasLLMDecision: !!step.llmDecision,
+            hasVisionAnalysis: !!step.visionAnalysis
+          });
+          
+          // Log LLM decisions if available
+          if (step.llmDecision) {
+            llmLogger.logLLMDecision(step.llmDecision, step.instruction);
+          }
+          
+          // Log Vision API analysis if available
+          if (step.visionAnalysis) {
+            visionLogger.logVisionAnalysis(step.visionAnalysis, step.instruction);
+          }
+          
+          // Log errors if any
+          if (step.error) {
+            testLogger.error(`Error in custom step ${index + 1}`, step.error);
+          }
+        });
+      }
+      
+      // Log all errors
+      if (results.errors.length > 0) {
+        results.errors.forEach((error, index) => {
+          testLogger.error(`Global error ${index + 1}: ${error.step}`, {
+            message: error.message,
+            details: error.details
+          });
+        });
+      }
+
+      return () => {
+        if (cleanupLogging) cleanupLogging();
+      };
+    }
+  }, [results, loggingEnabled, hasCustomSteps]);
 
   // Function to handle PDF export
   const exportAsPDF = async () => {
     if (!reportRef.current) return;
+    
+    if (loggingEnabled) {
+      uiLogger.info(`Starting PDF export for test ${results.testId}`);
+    }
     
     await generateTestResultsPDF(
       results,
@@ -37,6 +123,9 @@ export default function TestResults({ results }: TestResultsProps) {
           title: "Generating PDF...",
           description: "Please wait while we prepare your report"
         });
+        if (loggingEnabled) {
+          uiLogger.debug(`PDF generation started`);
+        }
       },
       () => {
         toast({
@@ -44,6 +133,9 @@ export default function TestResults({ results }: TestResultsProps) {
           description: "Your report has been downloaded",
           variant: "success"
         });
+        if (loggingEnabled) {
+          uiLogger.info(`PDF successfully generated and downloaded`);
+        }
       },
       (error) => {
         toast({
@@ -51,6 +143,9 @@ export default function TestResults({ results }: TestResultsProps) {
           description: "Please try again later",
           variant: "destructive"
         });
+        if (loggingEnabled) {
+          uiLogger.error(`PDF generation failed`, error);
+        }
       }
     );
   };
@@ -209,18 +304,85 @@ export default function TestResults({ results }: TestResultsProps) {
                                   )}
                                 </div>
                               ) : (
-                                <div className="text-muted-foreground text-sm">
-                                  No LLM decision data available for this step.
-                                </div>
+                                <div className="text-muted-foreground text-sm italic">No decision details available</div>
                               )}
                             </AccordionContent>
                           </AccordionItem>
+                          
+                          {step.visionAnalysis && (
+                            <AccordionItem value="vision-analysis" className="border-none">
+                              <AccordionTrigger className="py-1 text-sm accordion-trigger">
+                                View Vision API Analysis
+                              </AccordionTrigger>
+                              <AccordionContent>
+                                <div className="rounded-md border p-3 bg-gray-50 text-sm space-y-2">
+                                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                                    <div className="font-medium text-gray-700">Status:</div>
+                                    <div className="flex items-center">
+                                      <StatusIndicator 
+                                        status={step.visionAnalysis.isPassed ? "success" : "failure"}
+                                        label={step.visionAnalysis.isPassed ? "Passed" : "Failed"}
+                                      />
+                                    </div>
+                                    
+                                    <div className="font-medium text-gray-700">Confidence:</div>
+                                    <div>{step.visionAnalysis.confidence}%</div>
+                                  </div>
+                                  
+                                  <div>
+                                    <div className="font-medium text-gray-700 mb-1">Visual Analysis:</div>
+                                    <div className="p-2 bg-white rounded border text-xs whitespace-pre-wrap">
+                                      {step.visionAnalysis.reasoning}
+                                    </div>
+                                  </div>
+                                  
+                                  {step.visionAnalysis.beforeScreenshot && step.visionAnalysis.afterScreenshot && (
+                                    <div>
+                                      <div className="font-medium text-gray-700 mb-1">Before & After:</div>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div className="p-1 bg-white rounded border">
+                                          <div className="text-xs text-center mb-1 text-gray-500">Before</div>
+                                          {isValidScreenshot(step.visionAnalysis.beforeScreenshot) ? (
+                                            <img 
+                                              src={getValidImageUrl(step.visionAnalysis.beforeScreenshot)} 
+                                              alt="Before" 
+                                              className="max-h-48 mx-auto rounded border"
+                                            />
+                                          ) : (
+                                            <div className="text-xs text-muted-foreground italic text-center">
+                                              No screenshot available
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div className="p-1 bg-white rounded border">
+                                          <div className="text-xs text-center mb-1 text-gray-500">After</div>
+                                          {isValidScreenshot(step.visionAnalysis.afterScreenshot) ? (
+                                            <img 
+                                              src={getValidImageUrl(step.visionAnalysis.afterScreenshot)} 
+                                              alt="After" 
+                                              className="max-h-48 mx-auto rounded border"
+                                            />
+                                          ) : (
+                                            <div className="text-xs text-muted-foreground italic text-center">
+                                              No screenshot available
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </AccordionContent>
+                            </AccordionItem>
+                          )}
                         </Accordion>
-                        
+                                
                         {step.error && (
                           <Alert variant="destructive" className="mt-3">
                             <AlertTitle>Error</AlertTitle>
-                            <AlertDescription className="text-xs whitespace-pre-wrap">{step.error}</AlertDescription>
+                            <AlertDescription className="text-xs">
+                              {step.error}
+                            </AlertDescription>
                           </Alert>
                         )}
                       </CardContent>
@@ -366,6 +528,9 @@ export default function TestResults({ results }: TestResultsProps) {
             <Screenshots steps={results.steps} customSteps={results.customStepsResults} />
           </TabsContent>
         </Tabs>
+
+        {/* Logger Panel */}
+        {loggingEnabled && <LoggerPanel />}
       </div>
     </div>
   );

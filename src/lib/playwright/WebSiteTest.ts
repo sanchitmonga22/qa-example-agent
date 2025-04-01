@@ -1,11 +1,11 @@
-import { chromium, Browser, Page, BrowserContext, ElementHandle } from 'playwright';
+import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import { CustomStepResult, LLMDecision, PageElement, PageState, TestWebsiteRequest, TestWebsiteResponse, TestError, TestStep } from '../types';
 import { generateTestId } from '../utils';
-import { TestDataGenerator } from './TestDataGenerator';
 import { BaseLLMService } from '../services/BaseLLMService';
 import { OpenAIService } from '../services/OpenAIService';
 import { PlaywrightDOMInteractor } from '../interactions/PlaywrightDOMInteractor';
 import { InteractableElement } from '../interactions/BaseDOMInteractor';
+import { TestResultService } from '../services/TestResultService';
 
 export class WebSiteTest {
   private browser: Browser | null = null;
@@ -21,10 +21,12 @@ export class WebSiteTest {
   private url: string = '';
   private options = {
     timeout: 300000,
-    screenshotCapture: true
+    screenshotCapture: true,
+    headless: true
   };
   private llmService: BaseLLMService | null = null;
   private customStepsResults: CustomStepResult[] = [];
+  private testResultService: TestResultService;
 
   constructor(request: TestWebsiteRequest) {
     this.testId = generateTestId();
@@ -42,6 +44,12 @@ export class WebSiteTest {
     if (apiKey) {
       this.llmService = new OpenAIService(apiKey);
     }
+    
+    // Initialize the test result service
+    this.testResultService = TestResultService.getInstance();
+    
+    // Create a pending test entry
+    this.testResultService.createPendingTest(this.testId);
   }
 
   /**
@@ -50,8 +58,12 @@ export class WebSiteTest {
   async initialize(): Promise<void> {
     try {
       this.startTime = Date.now();
+      
+      // Update test status to running
+      this.testResultService.updateTestToRunning(this.testId);
+      
       this.browser = await chromium.launch({
-        headless: true,
+        headless: this.options.headless,
       });
       
       // Configure browser context to listen for new page events
@@ -96,8 +108,12 @@ export class WebSiteTest {
       
       // Initialize DOM interactor for the initial page
       this.domInteractor = new PlaywrightDOMInteractor(this.page);
+      
+      // Update progress after initialization
+      this.testResultService.updateTestProgress(this.testId, 30);
     } catch (error) {
       this.addError('initialization', 'Failed to initialize browser', error);
+      this.testResultService.failTest(this.testId, 'Failed to initialize browser: ' + (error instanceof Error ? error.message : String(error)));
       throw error;
     }
   }
@@ -112,11 +128,24 @@ export class WebSiteTest {
       // Step 1: Navigate to page
       await this.navigateToPage(url);
       
+      // Update progress after navigation
+      this.testResultService.updateTestProgress(this.testId, 40);
+      
       // Execute custom steps if LLM service is available
       if (this.llmService) {
-        for (const step of customSteps) {
+        const totalSteps = customSteps.length;
+        
+        for (let i = 0; i < totalSteps; i++) {
+          const step = customSteps[i];
           const stepResult = await this.executeCustomStep(step);
           this.customStepsResults.push(stepResult);
+          
+          // Calculate progress based on steps completed (40-95%)
+          const stepProgress = 40 + Math.floor(((i + 1) / totalSteps) * 55);
+          this.testResultService.updateTestProgress(this.testId, stepProgress);
+          
+          // Update test with custom step result
+          this.testResultService.updateTestWithCustomStepResult(this.testId, stepResult);
           
           // Stop execution if a step fails
           if (!stepResult.success) {
@@ -141,9 +170,13 @@ export class WebSiteTest {
         step.instruction.toLowerCase().includes('submit') || 
         step.instruction.toLowerCase().includes('form'));
       
+      // Final progress update before completion
+      this.testResultService.updateTestProgress(this.testId, 95);
+      
       return this.generateResponseWithCustomSteps(ctaFound, formSubmitted);
     } catch (error) {
       this.addError('custom_step_execution', 'Custom step execution failed', error);
+      this.testResultService.failTest(this.testId, 'Custom step execution failed: ' + (error instanceof Error ? error.message : String(error)));
       return this.generateResponseWithCustomSteps(false, false);
     } finally {
       await this.cleanup();
@@ -162,11 +195,15 @@ export class WebSiteTest {
       let finalError: string | undefined = undefined;
       let finalScreenshot = '';
       let finalDecision: LLMDecision | undefined = undefined;
+      let visionAnalysis = undefined;
       
       // Continue executing actions until the LLM indicates the step is complete
       while (!isStepComplete) {
         // Extract page state for LLM context
         const pageState = await this.extractPageState();
+        
+        // Capture the "before" screenshot
+        const beforeScreenshot = pageState.screenshot;
         
         // Determine the action to take using LLM
         const decision = await this.llmService!.determineNextAction(
@@ -300,6 +337,36 @@ export class WebSiteTest {
             }
           }
           
+          // Capture the "after" screenshot for Vision API analysis
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for UI to update
+          const afterPageState = await this.extractPageState();
+          const afterScreenshot = afterPageState.screenshot;
+          
+          // Use Vision API to analyze before and after screenshots
+          if (this.llmService && beforeScreenshot && afterScreenshot) {
+            try {
+              // Validate both screenshots have content before sending to Vision API
+              if (beforeScreenshot.length > 100 && afterScreenshot.length > 100) {
+                visionAnalysis = await this.llmService.analyzeScreenshots(
+                  beforeScreenshot,
+                  afterScreenshot,
+                  instruction
+                );
+                
+                // Use the Vision API result as the final determination of success
+                actionSuccess = visionAnalysis.isPassed;
+                if (!actionSuccess && !actionError) {
+                  actionError = visionAnalysis.reasoning;
+                }
+              } else {
+                console.warn('Screenshots too small or invalid, skipping Vision API analysis');
+              }
+            } catch (error) {
+              console.error('Error analyzing screenshots with Vision API:', error);
+              // Don't fail the test just because Vision API analysis failed
+            }
+          }
+          
           // Check if the LLM explicitly indicates the step is complete
           if (decision.isComplete) {
             isStepComplete = true;
@@ -342,8 +409,8 @@ export class WebSiteTest {
             finalError = finalError || 'Too many actions attempted without completing the step';
           }
           
-          // Capture screenshot
-          finalScreenshot = await this.domInteractor.takeScreenshot() || '';
+          // Capture final screenshot
+          finalScreenshot = afterScreenshot;
           
         } catch (e) {
           actionError = e instanceof Error ? e.message : String(e);
@@ -378,6 +445,7 @@ export class WebSiteTest {
         error: finalError,
         screenshot: finalScreenshot,
         llmDecision: finalDecision,
+        visionAnalysis,
         status: finalSuccess ? "success" : "failure"
       };
     } catch (error) {

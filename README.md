@@ -18,41 +18,45 @@ A powerful web interaction testing tool designed to automatically navigate and v
 ## System Architecture
 
 ```mermaid
-graph TD
-    User[User] --> |1. Enter URL & Test Steps| UI[Web UI]
-    UI --> |2. Submit Test Request| API[Next.js API]
-    API --> |3. Forward Request| TestService[Playwright Testing Service]
-    TestService --> |4. Navigate to URL| Website[Target Website]
+sequenceDiagram
+    participant User
+    participant UI as Web UI Interface
+    participant API as Next.js API
+    participant Test as Testing Service
+    participant LLM as LLM Service
+    participant Vision as Vision API
+    participant Web as Target Website
     
-    TestService <--> |5. Extract Page State| LLM[OpenAI LLM]
-    TestService <--> |6. Visual Analysis| Vision[OpenAI Vision API]
-    LLM --> |7. Decision Making| TestService
-    Vision --> |8. Visual Verification| TestService
+    User->>UI: 1. Enter URL & define test steps
+    UI->>UI: 2. Validate inputs
+    UI->>API: 3. Submit test request
+    API->>Test: 4. Forward request
     
-    TestService --> |9. Execute Actions| Website
-    Website --> |10. Page Updates| TestService
+    Test->>Web: 5. Navigate to target URL
+    Web-->>Test: 6. Page loaded
     
-    TestService --> |11. Test Results| API
-    API --> |12. Format & Return Results| UI
-    UI --> |13. Display Results| User
+    Note over Test,Vision: Visual Analysis Loop
+    Test->>Test: 7. Capture screenshot
+    Test->>Vision: 8. Send screenshot for analysis
+    Vision-->>Test: 9. Return visual element recognition
     
-    UI --> |14. Export PDF| PDFExport[PDF Export]
-    PDFExport --> |15. Download Report| User
+    Note over Test,LLM: Decision-Making Loop
+    Test->>Test: 10. Extract DOM elements
+    Test->>LLM: 11. Send page state & context
+    LLM-->>Test: 12. Return action decision
     
-    subgraph "Frontend (Vercel)"
-        UI
-        PDFExport
-    end
+    Test->>Web: 13. Execute action (click, fill, etc.)
+    Web-->>Test: 14. Page updated
     
-    subgraph "Backend (Vercel)"
-        API
-    end
+    Note over Test,Web: Steps 7-14 repeat for each test step
     
-    subgraph "Testing Service (Railway.app)"
-        TestService
-        LLM
-        Vision
-    end
+    Test-->>API: 15. Return test results
+    API-->>UI: 16. Process & format results
+    UI-->>User: 17. Display test summary & details
+    
+    User->>UI: 18. Request PDF export
+    UI->>UI: 19. Generate comprehensive report
+    UI-->>User: 20. Download PDF report
 ```
 
 The system works in a continuous feedback loop where:

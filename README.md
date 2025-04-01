@@ -2,6 +2,8 @@
 
 A powerful web interaction testing tool designed to automatically navigate and validate user journeys on any website using AI-powered testing. This tool helps development and QA teams ensure their user flows are working correctly by using intelligent automation to interact with web pages just like a human would.
 
+![QA Test Agent Screenshot](./public/images/qa-test-agent-screenshot.png)
+
 ## Features
 
 - Automatically detect and interact with UI elements on any website
@@ -12,6 +14,56 @@ A powerful web interaction testing tool designed to automatically navigate and v
 - Export comprehensive test reports as PDF
 - Define custom test steps in natural language
 - AI-guided testing with detailed decision reports
+
+## System Architecture
+
+```mermaid
+graph TD
+    User[User] --> |1. Enter URL & Test Steps| UI[Web UI]
+    UI --> |2. Submit Test Request| API[Next.js API]
+    API --> |3. Forward Request| TestService[Playwright Testing Service]
+    TestService --> |4. Navigate to URL| Website[Target Website]
+    
+    TestService <--> |5. Extract Page State| LLM[OpenAI LLM]
+    TestService <--> |6. Visual Analysis| Vision[OpenAI Vision API]
+    LLM --> |7. Decision Making| TestService
+    Vision --> |8. Visual Verification| TestService
+    
+    TestService --> |9. Execute Actions| Website
+    Website --> |10. Page Updates| TestService
+    
+    TestService --> |11. Test Results| API
+    API --> |12. Format & Return Results| UI
+    UI --> |13. Display Results| User
+    
+    UI --> |14. Export PDF| PDFExport[PDF Export]
+    PDFExport --> |15. Download Report| User
+    
+    subgraph "Frontend (Vercel)"
+        UI
+        PDFExport
+    end
+    
+    subgraph "Backend (Vercel)"
+        API
+    end
+    
+    subgraph "Testing Service (Railway.app)"
+        TestService
+        LLM
+        Vision
+    end
+```
+
+The system works in a continuous feedback loop where:
+1. The user defines a URL and custom test steps
+2. The Playwright Testing Service navigates to the target website
+3. Page state is extracted and analyzed by OpenAI's LLM and Vision API
+4. The AI determines the appropriate actions to take based on the test steps
+5. Actions are executed and the results are captured
+6. The process repeats until all test steps are completed
+7. Results are returned to the user with detailed reports and screenshots
+8. The user can export a comprehensive PDF report of the test results
 
 ## Tech Stack
 

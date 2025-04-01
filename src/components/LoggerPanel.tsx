@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Download, Trash2, Terminal } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 export function LoggerPanel() {
   const { enabled, logs, clearLogs, exportLogs } = useLoggerStore();
@@ -48,15 +49,15 @@ export function LoggerPanel() {
   const getLevelBadgeColor = (level: LogLevel) => {
     switch (level) {
       case LogLevel.DEBUG:
-        return "bg-gray-500";
+        return "bg-muted text-muted-foreground";
       case LogLevel.INFO:
-        return "bg-blue-500";
+        return "bg-primary text-primary-foreground";
       case LogLevel.WARN:
-        return "bg-yellow-500";
+        return "bg-warning text-warning-foreground";
       case LogLevel.ERROR:
-        return "bg-red-500";
+        return "bg-destructive text-destructive-foreground";
       default:
-        return "bg-gray-500";
+        return "bg-muted text-muted-foreground";
     }
   };
 
@@ -130,19 +131,19 @@ export function LoggerPanel() {
           <CardContent className="p-4 max-h-96 overflow-y-auto space-y-2">
             {filteredLogs.length > 0 ? (
               filteredLogs.map((log: LogEntry, index: number) => (
-                <div key={index} className="border-b border-gray-200 dark:border-gray-800 pb-2 mb-2 last:border-0">
+                <div key={index} className="border-b border-border pb-2 mb-2 last:border-0">
                   <div className="flex items-center space-x-2 mb-1">
                     <Badge className={getLevelBadgeColor(log.level)}>
                       {log.level}
                     </Badge>
                     <span className="text-sm font-medium">{log.category}</span>
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-muted-foreground">
                       {formatTimeAgo(log.timestamp)}
                     </span>
                   </div>
                   <p className="text-sm">{log.message}</p>
                   {log.details && (
-                    <pre className="text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded mt-1 overflow-x-auto">
+                    <pre className="text-xs bg-muted/30 p-2 rounded mt-1 overflow-x-auto">
                       {typeof log.details === 'object' 
                         ? JSON.stringify(log.details, null, 2) 
                         : log.details.toString()}
@@ -151,7 +152,7 @@ export function LoggerPanel() {
                 </div>
               ))
             ) : (
-              <div className="text-center py-10 text-gray-500">
+              <div className="text-center py-10 text-muted-foreground">
                 No logs to display for this level
               </div>
             )}
@@ -163,19 +164,19 @@ export function LoggerPanel() {
             <CardContent className="p-4 max-h-96 overflow-y-auto space-y-2">
               {filteredLogs.length > 0 ? (
                 filteredLogs.map((log: LogEntry, index: number) => (
-                  <div key={index} className="border-b border-gray-200 dark:border-gray-800 pb-2 mb-2 last:border-0">
+                  <div key={index} className="border-b border-border pb-2 mb-2 last:border-0">
                     <div className="flex items-center space-x-2 mb-1">
                       <Badge className={getLevelBadgeColor(log.level)}>
                         {log.level}
                       </Badge>
                       <span className="text-sm font-medium">{log.category}</span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-muted-foreground">
                         {formatTimeAgo(log.timestamp)}
                       </span>
                     </div>
                     <p className="text-sm">{log.message}</p>
                     {log.details && (
-                      <pre className="text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded mt-1 overflow-x-auto">
+                      <pre className="text-xs bg-muted/30 p-2 rounded mt-1 overflow-x-auto">
                         {typeof log.details === 'object' 
                           ? JSON.stringify(log.details, null, 2) 
                           : log.details.toString()}
@@ -184,7 +185,7 @@ export function LoggerPanel() {
                   </div>
                 ))
               ) : (
-                <div className="text-center py-10 text-gray-500">
+                <div className="text-center py-10 text-muted-foreground">
                   No logs to display for this level
                 </div>
               )}
@@ -193,8 +194,8 @@ export function LoggerPanel() {
         ))}
       </Tabs>
       
-      <CardFooter className="flex justify-between bg-gray-50 dark:bg-gray-900 p-4">
-        <div className="text-xs text-gray-500">
+      <CardFooter className="flex justify-between bg-muted/50 p-4">
+        <div className="text-xs text-muted-foreground">
           {logs.length > 0 && (
             <>Latest log: {new Date(logs[logs.length - 1].timestamp).toLocaleString()}</>
           )}

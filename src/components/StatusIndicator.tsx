@@ -26,7 +26,7 @@ export default function StatusIndicator({ status, size = "md", label }: StatusIn
   const icon = (() => {
     switch (status) {
       case "success":
-        return <CheckCircle className="text-green-600" size={sizeValue} />;
+        return <CheckCircle className="text-success" size={sizeValue} />;
       case "failure":
         return <XCircle className="text-destructive" size={sizeValue} />;
       case "running":
@@ -41,7 +41,7 @@ export default function StatusIndicator({ status, size = "md", label }: StatusIn
     return (
       <div className={cn(
         "flex items-center gap-1 px-2 py-1 rounded text-xs font-medium",
-        status === "success" && "bg-green-100 text-green-700 border border-green-300",
+        status === "success" && "bg-success/20 text-success border border-success/30",
         status === "failure" && "bg-destructive/10 text-destructive",
         status === "running" && "bg-warning/10 text-warning-foreground"
       )}>

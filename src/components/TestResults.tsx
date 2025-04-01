@@ -200,7 +200,7 @@ export default function TestResults({ results }: TestResultsProps) {
             Export as PDF
           </Button>
           {results.success ? (
-            <Badge className="bg-green-100 text-green-800 border-green-300 hover:bg-green-200">
+            <Badge variant="outline" className="bg-success/20 text-success border-success/30 hover:bg-success/30">
               <CheckCircle className="h-3.5 w-3.5 mr-1" />
               Passed
             </Badge>
@@ -224,7 +224,7 @@ export default function TestResults({ results }: TestResultsProps) {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">CTA Detection</CardTitle>
                 {results.primaryCTAFound ? (
-                  <div className="flex items-center rounded-full bg-green-100 p-1">
+                  <div className="flex items-center rounded-full bg-success/20 p-1">
                     <StatusIndicator status="success" />
                   </div>
                 ) : (
@@ -244,7 +244,7 @@ export default function TestResults({ results }: TestResultsProps) {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Workflow Completion</CardTitle>
                 {results.interactionSuccessful ? (
-                  <div className="flex items-center rounded-full bg-green-100 p-1">
+                  <div className="flex items-center rounded-full bg-success/20 p-1">
                     <StatusIndicator status="success" />
                   </div>
                 ) : (
@@ -273,7 +273,7 @@ export default function TestResults({ results }: TestResultsProps) {
                 <div className="space-y-3">
                   {results.customStepsResults!.map((step, index) => (
                     <Card key={index} className="border overflow-hidden">
-                      <CardHeader className="pb-2 bg-gray-50">
+                      <CardHeader className="pb-2 bg-muted/50">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <Badge variant="outline" className="mr-1">{index + 1}</Badge>
@@ -292,33 +292,33 @@ export default function TestResults({ results }: TestResultsProps) {
                             </AccordionTrigger>
                             <AccordionContent>
                               {step.llmDecision ? (
-                                <div className="rounded-md border p-3 bg-gray-50 text-sm space-y-2">
+                                <div className="rounded-md border p-3 bg-muted/50 text-sm space-y-2">
                                   <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                                    <div className="font-medium text-gray-700">Action:</div>
+                                    <div className="font-medium text-foreground">Action:</div>
                                     <div>{step.llmDecision.action}</div>
                                     
-                                    <div className="font-medium text-gray-700">Confidence:</div>
+                                    <div className="font-medium text-foreground">Confidence:</div>
                                     <div>{step.llmDecision.confidence}%</div>
                                     
                                     {step.llmDecision.value && (
                                       <>
-                                        <div className="font-medium text-gray-700">Value:</div>
+                                        <div className="font-medium text-foreground">Value:</div>
                                         <div>{step.llmDecision.value}</div>
                                       </>
                                     )}
                                   </div>
                                   
                                   <div>
-                                    <div className="font-medium text-gray-700 mb-1">Reasoning:</div>
-                                    <div className="p-2 bg-white rounded border text-xs whitespace-pre-wrap">
+                                    <div className="font-medium text-foreground mb-1">Reasoning:</div>
+                                    <div className="p-2 bg-background rounded border text-xs whitespace-pre-wrap">
                                       {step.llmDecision.reasoning}
                                     </div>
                                   </div>
                                   
                                   {step.llmDecision.explanation && (
                                     <div>
-                                      <div className="font-medium text-gray-700 mb-1">Explanation:</div>
-                                      <div className="p-2 bg-white rounded border text-xs">
+                                      <div className="font-medium text-foreground mb-1">Explanation:</div>
+                                      <div className="p-2 bg-background rounded border text-xs">
                                         {step.llmDecision.explanation}
                                       </div>
                                     </div>
@@ -326,8 +326,8 @@ export default function TestResults({ results }: TestResultsProps) {
                                   
                                   {step.llmDecision.targetElement && (
                                     <div>
-                                      <div className="font-medium text-gray-700 mb-1">Target Element:</div>
-                                      <div className="p-2 bg-white rounded border text-xs">
+                                      <div className="font-medium text-foreground mb-1">Target Element:</div>
+                                      <div className="p-2 bg-background rounded border text-xs">
                                         <div>Tag: {step.llmDecision.targetElement.tag}</div>
                                         {step.llmDecision.targetElement.id && 
                                           <div>ID: {step.llmDecision.targetElement.id}</div>}
@@ -351,9 +351,9 @@ export default function TestResults({ results }: TestResultsProps) {
                                 View Vision API Analysis
                               </AccordionTrigger>
                               <AccordionContent>
-                                <div className="rounded-md border p-3 bg-gray-50 text-sm space-y-2">
+                                <div className="rounded-md border p-3 bg-muted/50 text-sm space-y-2">
                                   <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                                    <div className="font-medium text-gray-700">Status:</div>
+                                    <div className="font-medium text-foreground">Status:</div>
                                     <div className="flex items-center">
                                       <StatusIndicator 
                                         status={step.visionAnalysis.isPassed ? "success" : "failure"}
@@ -361,32 +361,32 @@ export default function TestResults({ results }: TestResultsProps) {
                                       />
                                     </div>
                                     
-                                    <div className="font-medium text-gray-700">Confidence:</div>
+                                    <div className="font-medium text-foreground">Confidence:</div>
                                     <div>{step.visionAnalysis.confidence}%</div>
                                   </div>
                                   
                                   <div>
-                                    <div className="font-medium text-gray-700 mb-1">Visual Analysis:</div>
-                                    <div className="p-2 bg-white rounded border text-xs whitespace-pre-wrap">
+                                    <div className="font-medium text-foreground mb-1">Visual Analysis:</div>
+                                    <div className="p-2 bg-background rounded border text-xs whitespace-pre-wrap">
                                       {step.visionAnalysis.reasoning}
                                     </div>
                                   </div>
                                   
                                   {/* Use the appropriate screenshots */}
                                   <div>
-                                    <div className="font-medium text-gray-700 mb-1">Before & After:</div>
+                                    <div className="font-medium text-foreground mb-1">Before & After:</div>
                                     {/* Check if the screenshots are identical */}
                                     {areScreenshotsIdentical(
                                       index === 0 ? initialScreenshot : step.visionAnalysis.beforeScreenshot,
                                       step.visionAnalysis.afterScreenshot
                                     ) && (
-                                      <div className="bg-amber-50 border border-amber-200 rounded p-2 mb-2 text-amber-800 text-xs">
+                                      <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded p-2 mb-2 text-amber-800 dark:text-amber-300 text-xs">
                                         Note: The before and after screenshots appear identical, indicating no visible changes occurred.
                                       </div>
                                     )}
                                     <div className="grid grid-cols-2 gap-2">
-                                      <div className="p-1 bg-white rounded border">
-                                        <div className="text-xs text-center mb-1 text-gray-500">Before</div>
+                                      <div className="p-1 bg-background rounded border">
+                                        <div className="text-xs text-center mb-1 text-muted-foreground">Before</div>
                                         {isValidScreenshot(step.visionAnalysis.beforeScreenshot) || isValidScreenshot(getBeforeScreenshot(index)) ? (
                                           <div className="flex justify-center">
                                             <img 
@@ -406,8 +406,8 @@ export default function TestResults({ results }: TestResultsProps) {
                                           </div>
                                         )}
                                       </div>
-                                      <div className="p-1 bg-white rounded border">
-                                        <div className="text-xs text-center mb-1 text-gray-500">After</div>
+                                      <div className="p-1 bg-background rounded border">
+                                        <div className="text-xs text-center mb-1 text-muted-foreground">After</div>
                                         {isValidScreenshot(step.visionAnalysis.afterScreenshot) ? (
                                           <div className="flex justify-center">
                                             <img 
@@ -462,7 +462,7 @@ export default function TestResults({ results }: TestResultsProps) {
                 <div className="space-y-3">
                   {results.steps.map((step: TestStep, index) => (
                     <Card key={index} className="border overflow-hidden">
-                      <CardHeader className="pb-2 bg-gray-50">
+                      <CardHeader className="pb-2 bg-muted/50">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <Badge variant="outline" className="mr-1">{index + 1}</Badge>
@@ -484,33 +484,33 @@ export default function TestResults({ results }: TestResultsProps) {
                                 View LLM Decision Details
                               </AccordionTrigger>
                               <AccordionContent>
-                                <div className="rounded-md border p-3 bg-gray-50 text-sm space-y-2">
+                                <div className="rounded-md border p-3 bg-muted/50 text-sm space-y-2">
                                   <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                                    <div className="font-medium text-gray-700">Action:</div>
+                                    <div className="font-medium text-foreground">Action:</div>
                                     <div>{step.llmDecision.action}</div>
                                     
-                                    <div className="font-medium text-gray-700">Confidence:</div>
+                                    <div className="font-medium text-foreground">Confidence:</div>
                                     <div>{step.llmDecision.confidence}%</div>
                                     
                                     {step.llmDecision.value && (
                                       <>
-                                        <div className="font-medium text-gray-700">Value:</div>
+                                        <div className="font-medium text-foreground">Value:</div>
                                         <div>{step.llmDecision.value}</div>
                                       </>
                                     )}
                                   </div>
                                   
                                   <div>
-                                    <div className="font-medium text-gray-700 mb-1">Reasoning:</div>
-                                    <div className="p-2 bg-white rounded border text-xs whitespace-pre-wrap">
+                                    <div className="font-medium text-foreground mb-1">Reasoning:</div>
+                                    <div className="p-2 bg-background rounded border text-xs whitespace-pre-wrap">
                                       {step.llmDecision.reasoning}
                                     </div>
                                   </div>
                                   
                                   {step.llmDecision.explanation && (
                                     <div>
-                                      <div className="font-medium text-gray-700 mb-1">Explanation:</div>
-                                      <div className="p-2 bg-white rounded border text-xs">
+                                      <div className="font-medium text-foreground mb-1">Explanation:</div>
+                                      <div className="p-2 bg-background rounded border text-xs">
                                         {step.llmDecision.explanation}
                                       </div>
                                     </div>
@@ -518,8 +518,8 @@ export default function TestResults({ results }: TestResultsProps) {
                                   
                                   {step.llmDecision.targetElement && (
                                     <div>
-                                      <div className="font-medium text-gray-700 mb-1">Target Element:</div>
-                                      <div className="p-2 bg-white rounded border text-xs">
+                                      <div className="font-medium text-foreground mb-1">Target Element:</div>
+                                      <div className="p-2 bg-background rounded border text-xs">
                                         <div>Tag: {step.llmDecision.targetElement.tag}</div>
                                         {step.llmDecision.targetElement.id && 
                                           <div>ID: {step.llmDecision.targetElement.id}</div>}

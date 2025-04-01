@@ -30,9 +30,22 @@ export const isValidScreenshot = (screenshot?: string): boolean => {
   return !!screenshot && screenshot.trim() !== '' && screenshot.length > 100;
 };
 
+// Interface for test statistics
+export interface TestStatistics {
+  totalSteps: number;
+  passedSteps: number;
+  failedSteps: number;
+  successRate: number;
+  visionPassed: number;
+  visionFailed: number;
+  visionSuccessRate: number;
+  hasVisionResults: boolean;
+}
+
 export const generateTestResultsPDF = async (
   results: TestWebsiteResponse, 
   reportElement: HTMLElement,
+  statistics: TestStatistics,
   onStart: () => void,
   onSuccess: () => void,
   onError: (error: any) => void
@@ -79,31 +92,136 @@ export const generateTestResultsPDF = async (
     
     pdfLogger.debug('PDF instance created with A4 dimensions');
     
-    // Add title
-    pdf.setFontSize(16);
-    pdf.text("Test Results Report", margin, margin + 10);
+    // Add title with styling
+    pdf.setFillColor(50, 50, 50);
+    pdf.rect(0, 0, pageWidth, 25, 'F');
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFontSize(20);
+    pdf.text("Test Results Report", margin, margin + 7);
+    
+    // Reset text color for the rest of the document
+    pdf.setTextColor(0, 0, 0);
     
     // Add test info
     pdf.setFontSize(10);
     const testInfo = `URL: ${results.url} • Test ID: ${results.testId} • Duration: ${formatDuration(results.totalDuration)}`;
-    pdf.text(testInfo, margin, margin + 20);
+    pdf.text(testInfo, margin, margin + 30);
     
-    // Add result status
-    pdf.setFontSize(12);
-    const status = results.success ? "PASSED" : "FAILED";
-    pdf.text(`Test Status: ${status}`, margin, margin + 30);
-    
-    // Add primary results
-    pdf.text(`CTA Detection: ${results.primaryCTAFound ? "Successful" : "Failed"}`, margin, margin + 40);
-    pdf.text(`Workflow Completion: ${results.interactionSuccessful ? "Successful" : "Failed"}`, margin, margin + 50);
-    
-    // Track vertical position
-    let yPos = margin + 60;
-    
-    // Add test steps section title
+    // Add result status with visual indicators
     pdf.setFontSize(14);
-    pdf.text("Test Steps", margin, yPos);
-    yPos += 10;
+    // Use vision API results if available for status
+    const status = statistics.hasVisionResults 
+      ? statistics.visionSuccessRate >= 70 ? "PASSED" : "FAILED"
+      : results.success ? "PASSED" : "FAILED";
+    
+    // Status badge with color
+    if (statistics.hasVisionResults ? statistics.visionSuccessRate >= 70 : results.success) {
+      pdf.setFillColor(39, 174, 96); // Green for success
+    } else {
+      pdf.setFillColor(231, 76, 60); // Red for failure
+    }
+    pdf.roundedRect(margin, margin + 35, 25, 10, 2, 2, 'F');
+    
+    pdf.setTextColor(255, 255, 255);
+    pdf.text(status, margin + 5, margin + 42);
+    pdf.setTextColor(0, 0, 0); // Reset text color
+    
+    // Add test summary based on the statistics
+    pdf.setFontSize(12);
+    pdf.text(`Test Summary`, margin, margin + 55);
+    
+    // Add test statistics with graphical elements
+    pdf.setDrawColor(200, 200, 200);
+    pdf.setFillColor(245, 245, 245);
+    pdf.roundedRect(margin, margin + 60, contentWidth, 40, 3, 3, 'FD');
+    
+    pdf.setFontSize(11);
+    pdf.text(`Total Steps: ${statistics.totalSteps}`, margin + 5, margin + 70);
+    pdf.text(`Passed: ${statistics.passedSteps}`, margin + 5, margin + 78);
+    pdf.text(`Failed: ${statistics.failedSteps}`, margin + 5, margin + 86);
+    pdf.text(`Success Rate: ${statistics.successRate}%`, margin + 5, margin + 94);
+    
+    // Add a simple progress bar for success rate
+    const barWidth = 100;
+    const barHeight = 6;
+    const barX = margin + contentWidth - barWidth - 5;
+    const barY = margin + 75;
+    
+    // Draw background (empty) bar
+    pdf.setFillColor(220, 220, 220);
+    pdf.roundedRect(barX, barY, barWidth, barHeight, 2, 2, 'F');
+    
+    // Draw filled portion based on success rate
+    const fillWidth = (statistics.successRate / 100) * barWidth;
+    if (statistics.successRate >= 70) {
+      pdf.setFillColor(39, 174, 96); // Green for high success rate
+    } else if (statistics.successRate >= 40) {
+      pdf.setFillColor(243, 156, 18); // Yellow/orange for medium
+    } else {
+      pdf.setFillColor(231, 76, 60); // Red for low success rate
+    }
+    
+    if (fillWidth > 0) {
+      pdf.roundedRect(barX, barY, fillWidth, barHeight, 2, 2, 'F');
+    }
+    
+    // Add success rate text on top of bar
+    pdf.setFontSize(9);
+    pdf.setTextColor(255, 255, 255);
+    if (fillWidth > 15) { // Only add text if bar is wide enough
+      pdf.text(`${statistics.successRate}%`, barX + fillWidth / 2 - 5, barY + 4.5);
+    }
+    pdf.setTextColor(0, 0, 0); // Reset text color
+    
+    // Add vision API statistics if available
+    let yPos = margin + 110;
+    if (statistics.hasVisionResults) {
+      pdf.setFontSize(11);
+      pdf.text(`Visual Verification Results:`, margin + 5, yPos);
+      
+      // Add vision statistics
+      pdf.text(`Visually Verified: ${statistics.visionPassed + statistics.visionFailed}`, margin + 5, yPos + 8);
+      pdf.text(`Visually Passed: ${statistics.visionPassed}`, margin + 5, yPos + 16);
+      pdf.text(`Visually Failed: ${statistics.visionFailed}`, margin + 5, yPos + 24);
+      pdf.text(`Visual Success Rate: ${statistics.visionSuccessRate}%`, margin + 5, yPos + 32);
+      
+      // Add a vision progress bar
+      const visionBarY = yPos + 40;
+      
+      // Draw background (empty) bar
+      pdf.setFillColor(220, 220, 220);
+      pdf.roundedRect(barX, visionBarY, barWidth, barHeight, 2, 2, 'F');
+      
+      // Draw filled portion based on vision success rate
+      const visionFillWidth = (statistics.visionSuccessRate / 100) * barWidth;
+      if (statistics.visionSuccessRate >= 70) {
+        pdf.setFillColor(39, 174, 96); // Green for high success rate
+      } else if (statistics.visionSuccessRate >= 40) {
+        pdf.setFillColor(243, 156, 18); // Yellow/orange for medium
+      } else {
+        pdf.setFillColor(231, 76, 60); // Red for low success rate
+      }
+      
+      if (visionFillWidth > 0) {
+        pdf.roundedRect(barX, visionBarY, visionFillWidth, barHeight, 2, 2, 'F');
+      }
+      
+      // Add vision success rate text
+      if (visionFillWidth > 15) {
+        pdf.setTextColor(255, 255, 255);
+        pdf.text(`${statistics.visionSuccessRate}%`, barX + visionFillWidth / 2 - 5, visionBarY + 4.5);
+        pdf.setTextColor(0, 0, 0);
+      }
+      
+      yPos += 50; // Adjust for additional vision stats
+    }
+    
+    // Add test steps section title with styling
+    pdf.setFillColor(230, 230, 230);
+    pdf.rect(margin, yPos, contentWidth, 8, 'F');
+    pdf.setFontSize(14);
+    pdf.text("Test Steps", margin + 5, yPos + 6);
+    yPos += 15;
     
     pdfLogger.debug('Added basic test information to PDF');
     
@@ -421,14 +539,44 @@ export const generateTestResultsPDF = async (
       pdf.addPage();
       yPos = margin + 20;
       
+      // Add header with styling
+      pdf.setFillColor(50, 50, 50);
+      pdf.rect(0, 0, pageWidth, 15, 'F');
+      pdf.setTextColor(255, 255, 255);
       pdf.setFontSize(14);
-      pdf.text("Custom Test Steps", margin, yPos);
-      yPos += 10;
+      pdf.text("Custom Test Steps", margin, margin + 5);
+      pdf.setTextColor(0, 0, 0); // Reset text color
+      
+      // Add summary stats for this section
+      const passedCustomSteps = results.customStepsResults.filter(step => step.success).length;
+      const successRateCustom = Math.round((passedCustomSteps / results.customStepsResults.length) * 100);
+      
+      // Add mini stats bar
+      pdf.setFillColor(245, 245, 245);
+      pdf.roundedRect(margin, margin + 10, contentWidth, 15, 2, 2, 'F');
+      pdf.setFontSize(10);
+      pdf.text(`Total: ${results.customStepsResults.length} | Passed: ${passedCustomSteps} | Failed: ${results.customStepsResults.length - passedCustomSteps} | Success Rate: ${successRateCustom}%`, margin + 5, margin + 20);
+      
+      yPos += 20;
       
       pdfLogger.info(`Adding ${results.customStepsResults.length} custom steps to PDF`);
       
+      // Add each step with a colored status indicator
       for (let i = 0; i < results.customStepsResults.length; i++) {
         const step = results.customStepsResults[i];
+        
+        // Add status indicator
+        if (step.status === "success") {
+          pdf.setFillColor(39, 174, 96); // Green for success
+        } else {
+          pdf.setFillColor(231, 76, 60); // Red for failure
+        }
+        
+        // Draw status circle
+        const circleX = margin + 4;
+        const circleY = yPos + 4;
+        pdf.circle(circleX, circleY, 3, 'F');
+        
         await addStepToPdf(
           i + 1,
           step.instruction,

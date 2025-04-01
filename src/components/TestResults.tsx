@@ -11,14 +11,95 @@ import { formatDuration } from "@/lib/utils";
 import StatusIndicator from "@/components/StatusIndicator";
 import Screenshots from "@/components/Screenshots";
 import { TestWebsiteResponse, TestError, TestStep } from "@/lib/types";
-import { CheckCircle, FileDown } from "lucide-react";
+import { CheckCircle, FileDown, AlertTriangle, CircleCheck, CheckCheck } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
-import { generateTestResultsPDF, getValidImageUrl, isValidScreenshot } from "@/lib/pdfUtils";
+import { generateTestResultsPDF, getValidImageUrl, isValidScreenshot, TestStatistics } from "@/lib/pdfUtils";
 import { LoggerPanel } from "@/components/LoggerPanel";
 import { useLoggerStore, uiLogger, testLogger, llmLogger, visionLogger, initializeTestLogging } from "@/lib/logger";
+import { Progress } from "@radix-ui/react-progress";
 
 interface TestResultsProps {
   results: TestWebsiteResponse;
+}
+
+// New TestSummary Component
+function TestSummary({ statistics }: { statistics: TestStatistics }) {
+  return (
+    <Card className="mb-6">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Test Summary</CardTitle>
+        <CardDescription>
+          Overall test statistics based on {statistics.hasVisionResults ? "visual verification" : "test steps"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="space-y-1">
+            <p className="text-sm text-muted-foreground">Total Steps</p>
+            <p className="text-2xl font-bold">{statistics.totalSteps}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm text-muted-foreground">Passed</p>
+            <p className="text-2xl font-bold text-success">{statistics.passedSteps}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm text-muted-foreground">Failed</p>
+            <p className="text-2xl font-bold text-destructive">{statistics.failedSteps}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm text-muted-foreground">Success Rate</p>
+            <p className="text-2xl font-bold">{statistics.successRate}%</p>
+          </div>
+        </div>
+        
+        <div className="space-y-1">
+          <div className="flex justify-between">
+            <span className="text-sm text-muted-foreground">Success Rate</span>
+            <span className="text-sm font-medium">{statistics.successRate}%</span>
+          </div>
+          <Progress 
+            value={statistics.successRate}
+            className={statistics.successRate >= 70 ? "bg-muted" : statistics.successRate >= 40 ? "bg-muted" : "bg-muted"}
+          />
+        </div>
+
+        {statistics.hasVisionResults && (
+          <div className="pt-2 border-t">
+            <h4 className="font-medium mb-3">Visual Verification Results</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Visually Verified</p>
+                <p className="text-2xl font-bold">{statistics.visionPassed + statistics.visionFailed}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Visually Passed</p>
+                <p className="text-2xl font-bold text-success">{statistics.visionPassed}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Visually Failed</p>
+                <p className="text-2xl font-bold text-destructive">{statistics.visionFailed}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Visual Success Rate</p>
+                <p className="text-2xl font-bold">{statistics.visionSuccessRate}%</p>
+              </div>
+            </div>
+            
+            <div className="mt-3 space-y-1">
+              <div className="flex justify-between">
+                <span className="text-sm text-muted-foreground">Visual Success Rate</span>
+                <span className="text-sm font-medium">{statistics.visionSuccessRate}%</span>
+              </div>
+              <Progress 
+                value={statistics.visionSuccessRate}
+                className="bg-muted"
+              />
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function TestResults({ results }: TestResultsProps) {
@@ -30,6 +111,83 @@ export default function TestResults({ results }: TestResultsProps) {
   
   // Store the initial screenshot to use for before comparisons on the first step
   const initialScreenshot = results.steps.length > 0 ? results.steps[0].screenshot : undefined;
+  
+  // Calculate test statistics based on vision API results if available
+  const calculateTestStatistics = (): TestStatistics => {
+    const totalSteps = (results.customStepsResults?.length || 0) + results.steps.length;
+    let passedSteps = 0;
+    let failedSteps = 0;
+    let visionPassed = 0;
+    let visionFailed = 0;
+    let hasVisionResults = false;
+    
+    // First check custom steps with vision API results
+    if (hasCustomSteps && results.customStepsResults) {
+      results.customStepsResults.forEach(step => {
+        if (step.visionAnalysis) {
+          hasVisionResults = true;
+          if (step.visionAnalysis.isPassed) {
+            visionPassed++;
+            passedSteps++;
+          } else {
+            visionFailed++;
+            failedSteps++;
+          }
+        } else {
+          // If no vision analysis, fall back to step success status
+          if (step.success) {
+            passedSteps++;
+          } else {
+            failedSteps++;
+          }
+        }
+      });
+    }
+    
+    // Check standard steps
+    results.steps.forEach(step => {
+      if (step.status === "success") {
+        passedSteps++;
+      } else {
+        failedSteps++;
+      }
+    });
+    
+    // If we don't have custom steps with vision results, use standard success/failure counts
+    if (!hasVisionResults) {
+      return {
+        totalSteps,
+        passedSteps,
+        failedSteps,
+        successRate: totalSteps > 0 ? Math.round((passedSteps / totalSteps) * 100) : 0,
+        visionPassed: 0,
+        visionFailed: 0,
+        visionSuccessRate: 0,
+        hasVisionResults: false
+      };
+    }
+    
+    // If we have vision results, calculate separate statistics
+    const visionTotal = visionPassed + visionFailed;
+    return {
+      totalSteps,
+      passedSteps,
+      failedSteps,
+      successRate: totalSteps > 0 ? Math.round((passedSteps / totalSteps) * 100) : 0,
+      visionPassed,
+      visionFailed,
+      visionSuccessRate: visionTotal > 0 ? Math.round((visionPassed / visionTotal) * 100) : 0,
+      hasVisionResults: true
+    };
+  };
+  
+  // Calculate statistics
+  const statistics = calculateTestStatistics();
+  
+  // Overall test success is now determined by the vision API results if available
+  const isTestSuccessful = statistics.hasVisionResults 
+    ? statistics.visionSuccessRate >= 70 // Consider successful if 70% or more vision tests passed
+    : results.success;
   
   // Helper function to get the "before" screenshot for a specific step index
   const getBeforeScreenshot = (index: number) => {
@@ -154,6 +312,7 @@ export default function TestResults({ results }: TestResultsProps) {
     await generateTestResultsPDF(
       results,
       reportRef.current,
+      statistics,
       () => {
         toast({
           title: "Generating PDF...",
@@ -199,7 +358,7 @@ export default function TestResults({ results }: TestResultsProps) {
             <FileDown className="h-4 w-4" />
             Export as PDF
           </Button>
-          {results.success ? (
+          {isTestSuccessful ? (
             <Badge variant="outline" className="bg-success/20 text-success border-success/30 hover:bg-success/30">
               <CheckCircle className="h-3.5 w-3.5 mr-1" />
               Passed
@@ -218,6 +377,8 @@ export default function TestResults({ results }: TestResultsProps) {
       </div>
       
       <div ref={reportRef} className="space-y-6">
+        <TestSummary statistics={statistics} />
+        
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card>
             <CardHeader className="pb-2">

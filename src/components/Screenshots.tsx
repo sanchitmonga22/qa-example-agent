@@ -35,6 +35,37 @@ export default function Screenshots({ steps, customSteps = [], className = "" }:
   const isValidScreenshot = (screenshot?: string): boolean => {
     return !!screenshot && screenshot.trim() !== '';
   };
+  
+  // Helper to get the correct "before" screenshot for custom steps
+  const getBeforeScreenshotForCustomStep = (index: number): string | undefined => {
+    if (index === 0) {
+      // For the first custom step, use the last standard step's screenshot if available
+      return steps.length > 0 ? steps[steps.length - 1].screenshot : undefined;
+    } else {
+      // For subsequent steps, use the previous custom step's screenshot
+      return customSteps[index - 1].screenshot;
+    }
+  };
+  
+  // Helper to check if two screenshots are identical
+  const areScreenshotsIdentical = (screenshot1?: string, screenshot2?: string): boolean => {
+    if (!screenshot1 || !screenshot2) return false;
+    
+    // Instead of a direct string comparison which might identify screenshots as identical
+    // when they have minor differences in encoding but visible differences to users,
+    // we'll check if the screenshots exactly match or if they're both over a certain length
+    // and the first and last 1000 characters match
+    
+    // If the strings are exactly the same, they're identical
+    if (screenshot1 === screenshot2) {
+      // Direct exact match - very likely identical screenshots
+      return true;
+    }
+    
+    // For this use case, we'll return false to avoid showing the message when screenshots
+    // are visually different but might have some encoded similarities
+    return false;
+  };
 
   return (
     <div className={`space-y-6 ${className}`}>
@@ -43,7 +74,7 @@ export default function Screenshots({ steps, customSteps = [], className = "" }:
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {steps.map((step, index) => (
           <Card key={`step-${index}`} className="overflow-hidden">
-            <CardHeader className="bg-gray-50 pb-2">
+            <CardHeader className="bg-muted/50 pb-2">
               <div className="flex justify-between items-center">
                 <CardTitle className="text-sm font-medium">
                   {index + 1}. {step.name}
@@ -51,7 +82,7 @@ export default function Screenshots({ steps, customSteps = [], className = "" }:
                 <StatusIndicator status={step.status} size={16} />
               </div>
               {step.duration && (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-muted-foreground">
                   Duration: {(step.duration / 1000).toFixed(2)}s
                 </p>
               )}
@@ -66,13 +97,13 @@ export default function Screenshots({ steps, customSteps = [], className = "" }:
                   />
                 </div>
               ) : (
-                <div className="h-40 flex items-center justify-center bg-gray-100">
-                  <p className="text-gray-500 text-sm">No screenshot available</p>
+                <div className="h-40 flex items-center justify-center bg-muted/30">
+                  <p className="text-muted-foreground text-sm">No screenshot available</p>
                 </div>
               )}
               
               {step.error && (
-                <div className="p-3 bg-red-50 text-red-700 text-sm">
+                <div className="p-3 bg-destructive/10 text-destructive text-sm">
                   {step.error}
                 </div>
               )}
@@ -82,7 +113,7 @@ export default function Screenshots({ steps, customSteps = [], className = "" }:
         
         {customSteps.map((step, index) => (
           <Card key={`custom-${index}`} className="overflow-hidden">
-            <CardHeader className="bg-gray-50 pb-2">
+            <CardHeader className="bg-muted/50 pb-2">
               <div className="flex justify-between items-center">
                 <CardTitle className="text-sm font-medium">
                   {steps.length + index + 1}. {step.instruction}
@@ -94,22 +125,61 @@ export default function Screenshots({ steps, customSteps = [], className = "" }:
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              {isValidScreenshot(step.screenshot) ? (
-                <div className="relative aspect-video w-full overflow-hidden">
-                  <img
-                    src={getValidImageUrl(step.screenshot)}
-                    alt={`Screenshot of custom step ${index + 1}`}
-                    className="object-contain w-full h-full"
-                  />
+              {/* If we have vision analysis with before/after screenshots, show them side by side */}
+              {step.visionAnalysis && step.visionAnalysis.beforeScreenshot && step.visionAnalysis.afterScreenshot ? (
+                <div className="p-2">
+                  {/* Show a notice if screenshots are identical */}
+                  {areScreenshotsIdentical(step.visionAnalysis.beforeScreenshot, step.visionAnalysis.afterScreenshot) && (
+                    <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded p-2 mb-2 text-amber-800 dark:text-amber-300 text-xs">
+                      Note: The before and after screenshots appear identical, indicating no visible changes occurred.
+                    </div>
+                  )}
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="text-xs text-center mb-1 text-muted-foreground">Before</div>
+                      <div className="border rounded overflow-hidden">
+                        <img
+                          src={getValidImageUrl(
+                            // Use either the specified before screenshot or get it from the previous step
+                            step.visionAnalysis.beforeScreenshot || getBeforeScreenshotForCustomStep(index)
+                          )}
+                          alt={`Before screenshot of ${step.instruction}`}
+                          className="object-contain w-full"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-center mb-1 text-muted-foreground">After</div>
+                      <div className="border rounded overflow-hidden">
+                        <img
+                          src={getValidImageUrl(step.visionAnalysis.afterScreenshot)}
+                          alt={`After screenshot of ${step.instruction}`}
+                          className="object-contain w-full"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : (
-                <div className="h-40 flex items-center justify-center bg-gray-100">
-                  <p className="text-gray-500 text-sm">No screenshot available</p>
-                </div>
+                // Regular single screenshot display
+                isValidScreenshot(step.screenshot) ? (
+                  <div className="relative aspect-video w-full overflow-hidden">
+                    <img
+                      src={getValidImageUrl(step.screenshot)}
+                      alt={`Screenshot of custom step ${index + 1}`}
+                      className="object-contain w-full h-full"
+                    />
+                  </div>
+                ) : (
+                  <div className="h-40 flex items-center justify-center bg-muted/30">
+                    <p className="text-muted-foreground text-sm">No screenshot available</p>
+                  </div>
+                )
               )}
               
               {step.error && (
-                <div className="p-3 bg-red-50 text-red-700 text-sm">
+                <div className="p-3 bg-destructive/10 text-destructive text-sm">
                   {step.error}
                 </div>
               )}

@@ -1,11 +1,11 @@
-import { chromium, Browser, Page, BrowserContext, ElementHandle } from 'playwright';
+import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import { CustomStepResult, LLMDecision, PageElement, PageState, TestWebsiteRequest, TestWebsiteResponse, TestError, TestStep } from '../types';
 import { generateTestId } from '../utils';
-import { TestDataGenerator } from './TestDataGenerator';
 import { BaseLLMService } from '../services/BaseLLMService';
 import { OpenAIService } from '../services/OpenAIService';
 import { PlaywrightDOMInteractor } from '../interactions/PlaywrightDOMInteractor';
 import { InteractableElement } from '../interactions/BaseDOMInteractor';
+import { TestResultService } from '../services/TestResultService';
 
 export class WebSiteTest {
   private browser: Browser | null = null;
@@ -21,10 +21,12 @@ export class WebSiteTest {
   private url: string = '';
   private options = {
     timeout: 300000,
-    screenshotCapture: true
+    screenshotCapture: true,
+    headless: true
   };
   private llmService: BaseLLMService | null = null;
   private customStepsResults: CustomStepResult[] = [];
+  private testResultService: TestResultService;
 
   constructor(request: TestWebsiteRequest) {
     this.testId = generateTestId();
@@ -42,6 +44,12 @@ export class WebSiteTest {
     if (apiKey) {
       this.llmService = new OpenAIService(apiKey);
     }
+    
+    // Initialize the test result service
+    this.testResultService = TestResultService.getInstance();
+    
+    // Create a pending test entry
+    this.testResultService.createPendingTest(this.testId);
   }
 
   /**
@@ -50,8 +58,12 @@ export class WebSiteTest {
   async initialize(): Promise<void> {
     try {
       this.startTime = Date.now();
+      
+      // Update test status to running
+      this.testResultService.updateTestToRunning(this.testId);
+      
       this.browser = await chromium.launch({
-        headless: true,
+        headless: this.options.headless,
       });
       
       // Configure browser context to listen for new page events
@@ -96,8 +108,12 @@ export class WebSiteTest {
       
       // Initialize DOM interactor for the initial page
       this.domInteractor = new PlaywrightDOMInteractor(this.page);
+      
+      // Update progress after initialization
+      this.testResultService.updateTestProgress(this.testId, 30);
     } catch (error) {
       this.addError('initialization', 'Failed to initialize browser', error);
+      this.testResultService.failTest(this.testId, 'Failed to initialize browser: ' + (error instanceof Error ? error.message : String(error)));
       throw error;
     }
   }
@@ -112,11 +128,24 @@ export class WebSiteTest {
       // Step 1: Navigate to page
       await this.navigateToPage(url);
       
+      // Update progress after navigation
+      this.testResultService.updateTestProgress(this.testId, 40);
+      
       // Execute custom steps if LLM service is available
       if (this.llmService) {
-        for (const step of customSteps) {
+        const totalSteps = customSteps.length;
+        
+        for (let i = 0; i < totalSteps; i++) {
+          const step = customSteps[i];
           const stepResult = await this.executeCustomStep(step);
           this.customStepsResults.push(stepResult);
+          
+          // Calculate progress based on steps completed (40-95%)
+          const stepProgress = 40 + Math.floor(((i + 1) / totalSteps) * 55);
+          this.testResultService.updateTestProgress(this.testId, stepProgress);
+          
+          // Update test with custom step result
+          this.testResultService.updateTestWithCustomStepResult(this.testId, stepResult);
           
           // Stop execution if a step fails
           if (!stepResult.success) {
@@ -141,9 +170,13 @@ export class WebSiteTest {
         step.instruction.toLowerCase().includes('submit') || 
         step.instruction.toLowerCase().includes('form'));
       
+      // Final progress update before completion
+      this.testResultService.updateTestProgress(this.testId, 95);
+      
       return this.generateResponseWithCustomSteps(ctaFound, formSubmitted);
     } catch (error) {
       this.addError('custom_step_execution', 'Custom step execution failed', error);
+      this.testResultService.failTest(this.testId, 'Custom step execution failed: ' + (error instanceof Error ? error.message : String(error)));
       return this.generateResponseWithCustomSteps(false, false);
     } finally {
       await this.cleanup();
@@ -162,11 +195,24 @@ export class WebSiteTest {
       let finalError: string | undefined = undefined;
       let finalScreenshot = '';
       let finalDecision: LLMDecision | undefined = undefined;
+      let visionAnalysis = undefined;
+      let lastModificationVisionAnalysis = undefined;  // Track the last modification action's vision analysis
+      
+      // Capture the initial state before any actions are performed
+      const initialPageState = await this.extractPageState();
+      let beforeScreenshot = initialPageState.screenshot;
+      let previousStepScreenshot = beforeScreenshot;
       
       // Continue executing actions until the LLM indicates the step is complete
       while (!isStepComplete) {
-        // Extract page state for LLM context
+        // Extract current page state for LLM context
         const pageState = await this.extractPageState();
+        
+        // Ensure we have the before screenshot (will be the same as previous step's after screenshot)
+        if (previousActions.length > 0) {
+          // Use the most recent "after" screenshot as the new "before" screenshot
+          beforeScreenshot = previousStepScreenshot;
+        }
         
         // Determine the action to take using LLM
         const decision = await this.llmService!.determineNextAction(
@@ -202,6 +248,13 @@ export class WebSiteTest {
               actionError = `Tab with ID ${tabId} not found`;
             }
           } else {
+            // Capture a fresh "before" screenshot immediately before the action
+            // This ensures we have the most current state of the page
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Brief delay to ensure stability
+            const freshBeforePageState = await this.extractPageState();
+            beforeScreenshot = freshBeforePageState.screenshot;
+            console.log(`🔍 Captured BEFORE screenshot just before ${decision.action} action`);
+            
             switch (decision.action) {
               case 'click':
                 if (targetElement) {
@@ -260,6 +313,25 @@ export class WebSiteTest {
                   actionError = 'No target element provided for verify action';
                 }
                 
+                // Take a screenshot immediately for verify actions
+                const verifyScreenshot = await this.extractPageState().then(state => state.screenshot);
+                
+                // For verify actions, don't rely on visual analysis for success/failure
+                // since we expect no visual changes for verification
+                const verifyVisionAnalysis = {
+                  isPassed: actionSuccess, // Based on the existence check, not visual comparison
+                  confidence: 100,
+                  reasoning: "Verify actions don't require visual changes",
+                  beforeScreenshot,
+                  afterScreenshot: verifyScreenshot
+                };
+                
+                // Don't override the main visionAnalysis for verify actions
+                // Only update if there's no previous modification action's analysis
+                if (!lastModificationVisionAnalysis) {
+                  visionAnalysis = verifyVisionAnalysis;
+                }
+                
                 // Special case: verify can be used to check if the step is complete
                 if (actionSuccess && decision.reasoning.toLowerCase().includes('complete') ||
                     decision.reasoning.toLowerCase().includes('finish') ||
@@ -300,10 +372,84 @@ export class WebSiteTest {
             }
           }
           
+          // Capture the "after" screenshot for Vision API analysis
+          // Wait more time for any animations, redirects or DOM changes to complete
+          await new Promise(resolve => setTimeout(resolve, 3000)); // Increased from 2000ms to 3000ms
+          
+          // Force a full page refresh of the screenshot to ensure it's completely updated
+          const afterPageState = await this.extractPageState(true); // Pass true to force a fresh screenshot
+          let afterScreenshot = afterPageState.screenshot;
+          console.log(`🔍 Captured AFTER screenshot following ${decision.action} action`);
+          
+          // Save this screenshot to use as the "before" for the next action
+          previousStepScreenshot = afterScreenshot;
+          
+          // Only use Vision API to analyze screenshots for actions that modify the UI
+          // Skip visual analysis for read-only actions like 'verify'
+          if (this.llmService && beforeScreenshot && afterScreenshot && isModificationAction(decision.action)) {
+            try {
+              // Validate both screenshots have content before sending to Vision API
+              if (beforeScreenshot.length > 100 && afterScreenshot.length > 100) {
+                console.log(`📊 Running visual analysis for '${decision.action}' action...`);
+                // Debug logging to validate screenshots are different
+                console.log(`Before screenshot hash: ${beforeScreenshot.substring(0, 20)}...`);
+                console.log(`After screenshot hash: ${afterScreenshot.substring(0, 20)}...`);
+                
+                // If screenshots are identical, try to recapture the after screenshot
+                if (areScreenshotsIdentical(beforeScreenshot, afterScreenshot)) {
+                  console.warn('⚠️ WARNING: Before and After screenshots are identical, attempting to recapture after screenshot');
+                  
+                  // Wait a bit longer and try again
+                  await new Promise(resolve => setTimeout(resolve, 3000));
+                  const freshAfterPageState = await this.extractPageState();
+                  afterScreenshot = freshAfterPageState.screenshot;
+                  
+                  // Log the new after screenshot
+                  console.log(`New after screenshot hash: ${afterScreenshot.substring(0, 20)}...`);
+                  
+                  // If still identical, we'll warn but continue
+                  if (areScreenshotsIdentical(beforeScreenshot, afterScreenshot)) {
+                    console.warn('⚠️ WARNING: Screenshots still identical after recapture attempt');
+                  }
+                }
+                
+                visionAnalysis = await this.llmService.analyzeScreenshots(
+                  beforeScreenshot,
+                  afterScreenshot,
+                  instruction
+                );
+                
+                console.log(`📊 Visual analysis result: ${visionAnalysis.isPassed ? '✅ PASSED' : '❌ FAILED'} (confidence: ${visionAnalysis.confidence}%)`);
+                
+                // Include the screenshots in the vision analysis
+                visionAnalysis = {
+                  ...visionAnalysis,
+                  beforeScreenshot,
+                  afterScreenshot
+                };
+                
+                // Store this as the last modification action's vision analysis
+                lastModificationVisionAnalysis = visionAnalysis;
+                
+                // Use the Vision API result as the single source of truth for success determination
+                actionSuccess = visionAnalysis.isPassed;
+                if (!actionSuccess && !actionError) {
+                  actionError = visionAnalysis.reasoning;
+                }
+              } else {
+                console.warn('Screenshots too small or invalid, skipping Vision API analysis');
+              }
+            } catch (error) {
+              console.error('Error analyzing screenshots with Vision API:', error);
+              // Don't fail the test just because Vision API analysis failed
+            }
+          }
+          
           // Check if the LLM explicitly indicates the step is complete
           if (decision.isComplete) {
             isStepComplete = true;
-            finalSuccess = actionSuccess;
+            // Use vision analysis as single source of truth if available
+            finalSuccess = lastModificationVisionAnalysis ? lastModificationVisionAnalysis.isPassed : actionSuccess;
           }
           
           // Check if the reasoning indicates step completion
@@ -315,7 +461,8 @@ export class WebSiteTest {
               decision.reasoning.toLowerCase().includes('form completed') ||
               (decision.action === 'submit' && actionSuccess))) {
             isStepComplete = true;
-            finalSuccess = actionSuccess;
+            // Use vision analysis as single source of truth if available
+            finalSuccess = lastModificationVisionAnalysis ? lastModificationVisionAnalysis.isPassed : actionSuccess;
           }
           
           // If the action failed, mark step as complete but failed
@@ -342,8 +489,8 @@ export class WebSiteTest {
             finalError = finalError || 'Too many actions attempted without completing the step';
           }
           
-          // Capture screenshot
-          finalScreenshot = await this.domInteractor.takeScreenshot() || '';
+          // Capture final screenshot
+          finalScreenshot = afterScreenshot;
           
         } catch (e) {
           actionError = e instanceof Error ? e.message : String(e);
@@ -371,13 +518,15 @@ export class WebSiteTest {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
       
-      // Return the final result
+      // Return the final result, prioritizing the last modification action's vision analysis
       return {
         instruction,
         success: finalSuccess,
         error: finalError,
         screenshot: finalScreenshot,
         llmDecision: finalDecision,
+        // Use the last modification action's vision analysis if available
+        visionAnalysis: lastModificationVisionAnalysis || visionAnalysis,
         status: finalSuccess ? "success" : "failure"
       };
     } catch (error) {
@@ -413,13 +562,30 @@ export class WebSiteTest {
   
   /**
    * Extract page state for LLM context
+   * @param forceFresh Optional boolean to force a fresh screenshot with zero caching
    */
-  private async extractPageState(): Promise<PageState> {
+  private async extractPageState(forceFresh: boolean = false): Promise<PageState> {
     if (!this.domInteractor) {
       throw new Error('DOM interactor not initialized');
     }
     
-    const screenshot = await this.domInteractor.takeScreenshot();
+    // When forceFresh is true, we'll take additional measures to ensure a fresh screenshot
+    if (forceFresh) {
+      // Wait briefly for any animations or transitions to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // For some pages, scrolling slightly can force a redraw
+      try {
+        await this.domInteractor.getPage().evaluate(() => {
+          window.scrollBy(0, 1);
+          window.scrollBy(0, -1);
+        });
+      } catch (e) {
+        console.warn('Failed to perform scroll refresh:', e);
+      }
+    }
+    
+    const screenshot = await this.domInteractor.takeScreenshot(forceFresh);
     const interactableElements = await this.domInteractor.getInteractableElements();
     
     // Convert InteractableElement[] to PageElement[]
@@ -591,3 +757,87 @@ export class WebSiteTest {
     }
   }
 } 
+
+/**
+ * Helper function to check if an action is a UI modification action that should trigger visual analysis
+ */
+function isModificationAction(action: string): boolean {
+  const modificationActions = [
+    'click', 
+    'type', 
+    'select', 
+    'submit', 
+    'check', 
+    'uncheck', 
+    'press',
+    'hover' // Sometimes hover can trigger visual changes like tooltips
+  ];
+  
+  return modificationActions.includes(action.toLowerCase());
+}
+
+/**
+ * Helper function to check if two screenshots are identical
+ * Properly extracts base64 data from data URLs before comparing
+ */
+function areScreenshotsIdentical(beforeScreenshot: string, afterScreenshot: string): boolean {
+    if (!beforeScreenshot || !afterScreenshot) return false;
+    
+    try {
+        // Extract the base64 part from data URLs
+        const extractBase64 = (dataUrl: string): string => {
+            if (dataUrl.startsWith('data:')) {
+                const parts = dataUrl.split(',');
+                return parts.length > 1 ? parts[1] : dataUrl;
+            }
+            return dataUrl;
+        };
+        
+        const beforeBase64 = extractBase64(beforeScreenshot);
+        const afterBase64 = extractBase64(afterScreenshot);
+        
+        // Log lengths to help debug
+        console.log(`Before screenshot length: ${beforeBase64.length}`);
+        console.log(`After screenshot length: ${afterBase64.length}`);
+        
+        // First quick check - if lengths are different, they're definitely different images
+        if (beforeBase64.length !== afterBase64.length) {
+            console.log("Screenshots have different sizes, they are different");
+            return false;
+        }
+        
+        // To avoid full string comparison of potentially large base64 strings,
+        // check a few segments from beginning, middle and end
+        const checkSegments = (str1: string, str2: string, segmentSize = 100): boolean => {
+            // Check beginning
+            if (str1.substring(0, segmentSize) !== str2.substring(0, segmentSize)) return false;
+            
+            // Check middle
+            const midPoint = Math.floor(str1.length / 2);
+            const halfSegment = Math.floor(segmentSize / 2);
+            if (str1.substring(midPoint - halfSegment, midPoint + halfSegment) !== 
+                str2.substring(midPoint - halfSegment, midPoint + halfSegment)) return false;
+            
+            // Check end
+            if (str1.substring(str1.length - segmentSize) !== str2.substring(str2.length - segmentSize)) return false;
+            
+            // If all segments match, do a full comparison
+            return str1 === str2;
+        };
+        
+        const result = checkSegments(beforeBase64, afterBase64);
+        
+        // Log the result for debugging
+        if (result) {
+            console.log("CRITICAL: Screenshots are identical!");
+        } else {
+            console.log("Screenshots are different as expected");
+        }
+        
+        return result;
+    } catch (error) {
+        console.error("Error comparing screenshots:", error);
+        // If there's an error, assume they're different to be safe
+        return false;
+    }
+}

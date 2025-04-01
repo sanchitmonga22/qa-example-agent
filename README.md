@@ -2,6 +2,8 @@
 
 A powerful web interaction testing tool designed to automatically navigate and validate user journeys on any website using AI-powered testing. This tool helps development and QA teams ensure their user flows are working correctly by using intelligent automation to interact with web pages just like a human would.
 
+![QA Test Agent Screenshot](./public/images/qa-test-agent-screenshot.png)
+
 ## Features
 
 - Automatically detect and interact with UI elements on any website
@@ -12,6 +14,60 @@ A powerful web interaction testing tool designed to automatically navigate and v
 - Export comprehensive test reports as PDF
 - Define custom test steps in natural language
 - AI-guided testing with detailed decision reports
+
+## System Architecture
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as Web UI Interface
+    participant API as Next.js API
+    participant Test as Testing Service
+    participant LLM as LLM Service
+    participant Vision as Vision API
+    participant Web as Target Website
+    
+    User->>UI: 1. Enter URL & define test steps
+    UI->>UI: 2. Validate inputs
+    UI->>API: 3. Submit test request
+    API->>Test: 4. Forward request
+    
+    Test->>Web: 5. Navigate to target URL
+    Web-->>Test: 6. Page loaded
+    
+    Note over Test,Vision: Visual Analysis Loop
+    Test->>Test: 7. Capture screenshot
+    Test->>Vision: 8. Send screenshot for analysis
+    Vision-->>Test: 9. Return visual element recognition
+    
+    Note over Test,LLM: Decision-Making Loop
+    Test->>Test: 10. Extract DOM elements
+    Test->>LLM: 11. Send page state & context
+    LLM-->>Test: 12. Return action decision
+    
+    Test->>Web: 13. Execute action (click, fill, etc.)
+    Web-->>Test: 14. Page updated
+    
+    Note over Test,Web: Steps 7-14 repeat for each test step
+    
+    Test-->>API: 15. Return test results
+    API-->>UI: 16. Process & format results
+    UI-->>User: 17. Display test summary & details
+    
+    User->>UI: 18. Request PDF export
+    UI->>UI: 19. Generate comprehensive report
+    UI-->>User: 20. Download PDF report
+```
+
+The system works in a continuous feedback loop where:
+1. The user defines a URL and custom test steps
+2. The Playwright Testing Service navigates to the target website
+3. Page state is extracted and analyzed by OpenAI's LLM and Vision API
+4. The AI determines the appropriate actions to take based on the test steps
+5. Actions are executed and the results are captured
+6. The process repeats until all test steps are completed
+7. Results are returned to the user with detailed reports and screenshots
+8. The user can export a comprehensive PDF report of the test results
 
 ## Tech Stack
 

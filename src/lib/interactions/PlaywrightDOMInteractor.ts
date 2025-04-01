@@ -388,11 +388,24 @@ export class PlaywrightDOMInteractor extends BaseDOMInteractor {
   }
 
   /**
-   * Take a screenshot
+   * Returns the underlying Playwright Page instance
    */
-  async takeScreenshot(): Promise<string> {
+  getPage(): Page {
+    return this.page;
+  }
+
+  /**
+   * Take a screenshot
+   * @param forceFresh Optional boolean to force a completely fresh screenshot
+   */
+  async takeScreenshot(forceFresh: boolean = false): Promise<string> {
     try {
-      const buffer = await this.page.screenshot({ type: 'jpeg', quality: 80 });
+      // When forceFresh is true, use more aggressive caching options
+      const options = forceFresh ? 
+        { type: 'jpeg' as const, quality: 90, fullPage: true, timeout: 5000 } : 
+        { type: 'jpeg' as const, quality: 80 };
+        
+      const buffer = await this.page.screenshot(options);
       return `data:image/jpeg;base64,${buffer.toString('base64')}`;
     } catch (error) {
       console.error('Screenshot error:', error);

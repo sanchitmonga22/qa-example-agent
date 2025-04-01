@@ -3,7 +3,7 @@
  * Abstract class that defines the interface for LLM integration
  */
 
-import { ElementSelection, FormFieldIdentification, LLMDecision, PageState } from "../types";
+import { ElementSelection, FormFieldIdentification, LLMDecision, PageState, VisionAnalysisResult } from "../types";
 
 export abstract class BaseLLMService {
   /**
@@ -56,6 +56,18 @@ export abstract class BaseLLMService {
     confidence: number;
     reasoning: string;
   }>;
+
+  /**
+   * Analyzes before and after screenshots to determine if the requested action was successful
+   * @param beforeScreenshot Base64 encoded before screenshot
+   * @param afterScreenshot Base64 encoded after screenshot
+   * @param instruction The user instruction for this step
+   */
+  abstract analyzeScreenshots(
+    beforeScreenshot: string,
+    afterScreenshot: string,
+    instruction: string
+  ): Promise<VisionAnalysisResult>;
 
   /**
    * Utility method to build context from page state

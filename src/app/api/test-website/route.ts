@@ -3,6 +3,7 @@ import { WebSiteTest } from '@/lib/playwright/WebSiteTest';
 import { TestWebsiteRequest, TestWebsiteResponse } from '@/lib/types';
 import { TestResultService } from '@/lib/services/TestResultService';
 import { z } from 'zod';
+import { generateTestId } from '@/lib/utils';
 
 // Validation schema for the request
 const requestSchema = z.object({
@@ -10,7 +11,8 @@ const requestSchema = z.object({
   customSteps: z.array(z.string()).optional(),
   options: z.object({
     timeout: z.number().min(5000).max(120000).optional(),
-    screenshotCapture: z.boolean().optional()
+    screenshotCapture: z.boolean().optional(),
+    headless: z.boolean().optional()
   }).optional()
 });
 
@@ -47,9 +49,21 @@ export async function POST(request: NextRequest) {
     const testResultService = TestResultService.getInstance();
     testResultService.completeTest(result);
     
+    // Log success for debugging
+    console.log(`Test completed successfully. Test ID: ${result.testId}, History updated.`);
+    
     return NextResponse.json(result);
   } catch (error) {
     console.error('Error testing website interaction:', error);
+    
+    // If we have an error, try to record the failure
+    try {
+      const testId = generateTestId();
+      const testResultService = TestResultService.getInstance();
+      testResultService.failTest(testId, error instanceof Error ? error.message : String(error));
+    } catch (recordError) {
+      console.error('Failed to record test failure:', recordError);
+    }
     
     return NextResponse.json(
       { 

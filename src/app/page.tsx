@@ -12,7 +12,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [testResults, setTestResults] = useState<TestWebsiteResponse | null>(null);
 
-  const runTest = async (url: string, customSteps?: string[]) => {
+  const runTest = async (url: string, customSteps?: string[], options?: { headless?: boolean }) => {
     try {
       setIsLoading(true);
       setTestResults(null);
@@ -30,7 +30,13 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url, customSteps }),
+        body: JSON.stringify({ 
+          url, 
+          customSteps,
+          options: {
+            headless: options?.headless
+          }
+        }),
       });
       
       if (!response.ok) {
